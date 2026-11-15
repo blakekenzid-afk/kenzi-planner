@@ -53,10 +53,10 @@ nav button{border:0;background:none;font-family:Nunito;font-weight:700;font-size
 nav button .e{font-size:22px}
 nav button.on{color:var(--pinkD);background:#FDEAF0}
 .fab{position:fixed;right:18px;bottom:96px;width:58px;height:58px;border-radius:50%;background:var(--pinkD);color:#fff;font-size:30px;border:0;box-shadow:0 6px 18px rgba(232,120,155,.45);cursor:pointer;z-index:6}
-.sheet{position:fixed;inset:0;background:rgba(91,74,87,.3);display:none;align-items:flex-end;z-index:9}
+.sheet{position:fixed;inset:0;background:rgba(91,74,87,.3);display:none;align-items:flex-end;z-index:70}
 .sheet.show{display:flex}
 .sheet .in{background:#fff;width:100%;max-width:720px;margin:0 auto;border-radius:26px 26px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom))}
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:100px;background:var(--ink);color:#fff;padding:10px 18px;border-radius:999px;font-weight:700;opacity:0;transition:.3s;z-index:10;pointer-events:none}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:100px;background:var(--ink);color:#fff;padding:10px 18px;border-radius:999px;font-weight:700;opacity:0;transition:.3s;z-index:80;pointer-events:none}
 .toast.show{opacity:1}
 .empty{color:var(--soft);text-align:center;padding:14px;font-weight:600}
 .loading{text-align:center;padding:60px 0;font-family:Comfortaa;color:var(--pinkD)}
@@ -83,7 +83,7 @@ nav button.on{color:var(--pinkD);background:#FDEAF0}
 .gotbar{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:10px;border-top:2px dotted #F1E3EA;font-weight:800;color:var(--soft);cursor:pointer}
 .gotbar .sectionlink{float:none}
 #app.boardmode{max-width:none;padding:0 14px}
-.btool{position:sticky;top:0;z-index:900;display:flex;gap:8px;flex-wrap:wrap;padding:6px 0 10px}
+.btool{position:sticky;top:0;z-index:4;display:flex;gap:8px;flex-wrap:wrap;padding:6px 0 10px}
 .btool button{border:0;border-radius:999px;padding:8px 14px;font:700 14px Nunito;background:#fff;color:var(--ink);box-shadow:0 3px 10px rgba(91,74,87,.12);cursor:pointer}
 .btray{background:#fff;border-radius:20px;padding:12px;margin:0 0 12px;box-shadow:0 4px 14px rgba(91,74,87,.12);display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .btray .opt{background:#FDEAF0;color:var(--ink);border-radius:999px;padding:7px 12px;font-weight:700;font-size:14px;cursor:pointer}
