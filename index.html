@@ -289,7 +289,7 @@ window.addEventListener('resize',function(){if(tab=='board')bFit();});
 #bell .dot{position:absolute;top:6px;right:7px;width:10px;height:10px;border-radius:50%;background:var(--pinkD);display:none}
 #npanel{position:fixed;inset:0;background:rgba(91,74,87,.35);z-index:60;display:none;align-items:flex-end;justify-content:center}
 #npanel.open{display:flex}
-#npanel .sheet{background:var(--cream);width:100%;max-width:520px;max-height:88vh;overflow:auto;border-radius:28px 28px 0 0;padding:20px 18px calc(24px + env(safe-area-inset-bottom))}
+#npanel .nsheet{background:var(--cream);width:100%;max-width:520px;max-height:88vh;overflow:auto;border-radius:28px 28px 0 0;padding:20px 18px calc(24px + env(safe-area-inset-bottom))}
 #npanel h2{color:var(--pinkD);font-size:20px}
 #npanel .x{float:right;border:0;background:#fff;border-radius:50%;width:34px;height:34px;font-size:16px;cursor:pointer}
 .nbtn{display:inline-block;border:0;border-radius:999px;padding:11px 16px;font-family:Nunito;font-weight:800;font-size:15px;cursor:pointer;margin:4px 6px 4px 0}
@@ -300,7 +300,7 @@ window.addEventListener('resize',function(){if(tab=='board')bFit();});
 .rgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
 </style>
 <button id="bell" onclick="openN()" aria-label="Reminders">🔔<span class="dot" id="belldot"></span></button>
-<div id="npanel" onclick="if(event.target===this)closeN()"><div class="sheet">
+<div id="npanel" onclick="if(event.target===this)closeN()"><div class="nsheet">
  <button class="x" onclick="closeN()">✕</button>
  <h2>🔔 Reminders</h2>
  <div class="card" style="margin-top:14px">
