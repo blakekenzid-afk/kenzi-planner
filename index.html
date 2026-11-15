@@ -106,7 +106,7 @@ nav button.on{color:var(--pinkD);background:#FDEAF0}
 @media(max-width:699px){.board{height:auto!important;min-height:0;padding:10px;overflow:visible}.wdg{position:relative;left:auto!important;top:auto!important;width:auto!important;height:auto!important;max-height:360px;margin:0 0 12px}.wr,.wh{cursor:default}.wr{display:none}}
 </style><script>
 /* ---- Home Screen app bridge: talks to the Sheet through Apps Script ---- */
-var PLANNER_API='__API_URL__';
+var PLANNER_API='https://script.google.com/macros/s/AKfycby2K77ahxWPKILsKQNSUwa199QUB7uymfJbCbZUT9eRmwBT-8f6wZW-WVovfLPS7cZ4bQ/exec';
 var PK=localStorage.getItem('pk')||'';
 (function(){var m=(location.search+location.hash).match(/[?&#]k=([^&#]+)/);if(m){PK=decodeURIComponent(m[1]);localStorage.setItem('pk',PK);}})();
 function plannerApi(fn,args){return fetch(PLANNER_API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({k:PK,fn:fn,args:args||[]})}).then(function(r){return r.json();}).then(function(j){if(!j.ok)throw j.e;return j.r;});}
