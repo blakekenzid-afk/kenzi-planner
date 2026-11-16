@@ -767,3 +767,8 @@ body.darkth .ideab,body.darkth .fchips button{background:rgba(255,255,255,.06);c
 
 .wnew>.grid-stack-item-content>.card,.stack-item.wnew>.card{animation:wnew 2.4s ease}
 @keyframes wnew{0%,40%{box-shadow:0 0 0 4px var(--mustard,#e6b84a)}100%{box-shadow:none}}
+
+.grid-stack .card>.wh.clear{position:relative}
+.grid-stack .card>.wh.clear::before{content:'';position:absolute;left:50%;top:9px;transform:translateX(-50%);width:42px;height:5px;border-radius:3px;background:color-mix(in srgb,var(--ink) 28%,transparent);opacity:.55;transition:opacity .2s}
+.grid-stack .grid-stack-item:hover .card>.wh.clear::before{opacity:1}
+.grid-stack .card[data-wtype=photo],.grid-stack .card[data-wtype=sticker],.grid-stack .card[data-wtype=welcome],.grid-stack .card[data-wtype=quote]{cursor:grab}
