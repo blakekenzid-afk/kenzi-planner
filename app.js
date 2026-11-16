@@ -1,7 +1,7 @@
 /* Kenzi's Planner v2 — Autumn Coffeehouse. Data lives in Firestore through the planner API. */
 (function(){
 'use strict';
-var VERSION='2.1.0';
+var VERSION='2.2.0';
 var PLANNER_API=window.PLANNER_API_OVERRIDE||'https://script.google.com/macros/s/AKfycby2K77ahxWPKILsKQNSUwa199QUB7uymfJbCbZUT9eRmwBT-8f6wZW-WVovfLPS7cZ4bQ/exec';
 var COLS=['groceries','meals','todos','events','reminders','brain','bills','lists','kids'];
 var PK=localStorage.getItem('pk')||'';
@@ -728,9 +728,335 @@ function quoteDialog(id){var w=wById(id);if(!w)return;var st=w.style||{};
  form({title:'✍️ Your note',color:'var(--caramel)',values:{text:w.text||'',card:st.card||''},fields:[{k:'text',label:'Write anything – a quote, a reminder, a sweet note',t:'area',ph:'Be kind to yourself today 🍂'},{k:'card',label:'Paper color',t:'swatch',opts:[['','var(--paper)']].concat(CARDCOLORS.slice(0,10).map(function(c){return [c[0],c[0]];}))}],
   onSave:function(v){w.text=v.text;w.style=Object.assign({},w.style||{});if(v.card)w.style.card=v.card;else delete w.style.card;if(!Object.keys(w.style).length)delete w.style;saveLayout();redrawWidget(w);}});}
 
+/* ================= Phase 3: the tabs (v2.2.0) ================= */
+/* Later function declarations replace the Phase 1 versions of the same name. */
+
+/* ---------- shared ---------- */
+var TTAGS=[['','None'],['home','🏡 Home'],['school','🍎 School'],['kids','🎒 Kids'],['errands','🚗 Errands'],['me','🌸 Me'],['crafts','✂️ Crafts']];
+var TTAGMAP={};TTAGS.forEach(function(t){TTAGMAP[t[0]]=t[1];});
+var REPS=[['','Doesn’t repeat'],['daily','Every day'],['weekly','Every week'],['biweekly','Every 2 weeks'],['monthly','Every month'],['yearly','Every year']];
+var REPNAME={daily:'daily',weekly:'weekly',biweekly:'every 2 wks',monthly:'monthly',yearly:'yearly'};
+function daysBetween(a,b){return Math.round((b-a)/864e5);}
+function advance(ds,rep){var d=parseD(ds)||today();
+ if(rep==='daily')d=addDays(d,1);else if(rep==='weekly')d=addDays(d,7);else if(rep==='biweekly')d=addDays(d,14);
+ else if(rep==='monthly'){var dd=d.getDate(),n=new Date(d.getFullYear(),d.getMonth()+1,1),last=new Date(n.getFullYear(),n.getMonth()+1,0).getDate();d=new Date(n.getFullYear(),n.getMonth(),Math.min(dd,last));}
+ else if(rep==='yearly')d=new Date(d.getFullYear()+1,d.getMonth(),d.getDate());return iso(d);}
+function sheet(title,color,body,foot){var veil=document.createElement('div');veil.className='veil';
+ veil.innerHTML='<div class="dlg wide" role="dialog"><div class="dh2" style="background:'+color+'"><span>'+esc(title)+'</span><button class="ib" data-x>✕</button></div><div class="db">'+body+'</div>'+(foot?'<div class="df">'+foot+'</div>':'')+'</div>';
+ document.body.appendChild(veil);veil.addEventListener('click',function(e){if(e.target===veil||e.target.closest('[data-x]'))veil.remove();});
+ veil.addEventListener('keydown',function(e){if(e.key==='Escape')veil.remove();});return veil;}
+function closeSheets(){document.querySelectorAll('.veil').forEach(function(v){v.remove();});}
+function progress(done,total,cls){var p=total?Math.round(done*100/total):0;return '<div class="prog '+(cls||'')+'"><i style="width:'+p+'%"></i></div>';}
+function filterChips(name,cur,opts){return '<div class="fchips" data-fgroup="'+name+'">'+opts.map(function(o){return '<button class="'+(cur===o[0]?'on':'')+'" data-f="'+name+':'+esc(o[0])+'">'+esc(o[1])+'</button>';}).join('')+'</div>';}
+var DOWS={sun:0,sunday:0,mon:1,monday:1,tue:2,tues:2,tuesday:2,wed:3,weds:3,wednesday:3,thu:4,thur:4,thurs:4,thursday:4,fri:5,friday:5,sat:6,saturday:6};
+function parseWhen(text){var m=text.match(/\s+(today|tonight|tomorrow|tmrw|(?:on |by |next )?(?:sun|sunday|mon|monday|tue|tues|tuesday|wed|weds|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday))\s*$/i);
+ if(!m)return {text:text,due:''};var w=m[1].toLowerCase().replace(/^(on|by|next) /,''),t=today(),d;
+ if(w==='today'||w==='tonight')d=t;else if(w==='tomorrow'||w==='tmrw')d=addDays(t,1);else{var g=DOWS[w],diff=(g-t.getDay()+7)%7;d=addDays(t,diff===0?7:diff);}
+ return {text:text.slice(0,m.index).trim()||text,due:iso(d)};}
+
+/* ---------- to-dos ---------- */
+var todoF=localStorage.getItem('todoF')||'all';
+function todoWhenGroup(t){if(t.done)return 4;if(!t.due)return 3;var dl=daysBetween(today(),parseD(t.due));if(dl<0)return 0;if(dl===0)return 1;if(dl<=7)return 2;return 3;}
+function todosSorted(){return DB.todos.slice().sort(function(a,b){if(!!a.done!==!!b.done)return a.done?1:-1;if(!!a.star!==!!b.star&&!a.done)return a.star?-1:1;var ad=a.due||'9999',bd=b.due||'9999';if(ad!==bd)return ad<bd?-1:1;return byCreated(a,b);});}
+function todoRow(t){var td=iso(today()),due='';
+ if(t.due){var late=t.due<td&&!t.done;due='<span class="pill'+(late?' rust':t.due===td?' mustard':'')+'">'+(late?'late · ':'')+esc(nice(t.due))+'</span>';}
+ var meta=(t.repeat?'<span class="tiny">🔁 '+esc(REPNAME[t.repeat]||t.repeat)+'</span>':'')+(t.tag&&TTAGMAP[t.tag]?'<span class="tiny">'+esc(TTAGMAP[t.tag])+'</span>':'')+(t.note?'<span class="tiny">📝</span>':'');
+ return '<div class="row'+(t.done?' done':'')+(t.star&&!t.done?' starred':'')+'"><input type="checkbox" class="ck" data-tog="todos:'+t.id+':done"'+(t.done?' checked':'')+'><button class="star'+(t.star?' on':'')+'" data-star="'+t.id+'" aria-label="Important">'+(t.star?'★':'☆')+'</button><div class="tx" data-edit="todos:'+t.id+'">'+esc(t.text)+(meta?'<div class="meta2">'+meta+'</div>':'')+'</div>'+due+'<button class="x" data-rm="todos:'+t.id+'" aria-label="Remove">✕</button></div>';}
+function editTodo(t){t=t||{};form({title:t.id?'Edit to-do':'New to-do',color:'var(--rust)',required:'text',values:Object.assign({},t,{star:t.star?'1':''}),fields:[
+ {k:'text',label:'To-do',ph:'Rake leaves'},{k:'due',label:'Due date (optional)',t:'date'},
+ {k:'star',label:'Important?',t:'chips',opts:[['','Regular'],['1','⭐ Important']]},
+ {k:'tag',label:'Category',t:'chips',opts:TTAGS},
+ {k:'repeat',label:'Repeat',t:'select',opts:REPS},
+ {k:'note',label:'Notes',t:'area',ph:'Details, phone number…'}],
+ onSave:function(v){if(v.repeat&&!v.due)v.due=iso(today());save('todos',Object.assign({},t,{text:v.text,due:v.due,star:!!v.star,tag:v.tag,repeat:v.repeat,note:v.note,done:!!t.done}));},
+ onDelete:t.id?function(){remove('todos',t.id);}:null});}
+function todoMatches(t){var td=iso(today());
+ if(todoF==='all')return true;if(todoF==='today')return !t.done&&t.due&&t.due<=td;
+ if(todoF==='week')return !t.done&&t.due&&t.due<=iso(addDays(today(),7));if(todoF==='star')return !!t.star&&!t.done;
+ return t.tag===todoF;}
+function todoListHtml(){var all=todosSorted(),list=all.filter(todoMatches),GN=['⚠️ Overdue','☀️ Today','📅 This week','🌿 Later','✓ Done'],h='',last=-1;
+ if(!list.length)return empty('🍂',todoF==='all'?'All clear! Add something<br>when it pops into your head.':'Nothing here right now.');
+ list.forEach(function(t){var g=todoWhenGroup(t);if(g!==last){h+='<div class="ghead'+(g===0?' late':'')+'">'+GN[g]+'</div>';last=g;}h+=todoRow(t);});return h;}
+function todoPage(){var t=DB.todos,done=t.filter(function(x){return x.done;}).length,open=t.length-done,td=iso(today()),
+ late=t.filter(function(x){return !x.done&&x.due&&x.due<td;}).length,
+ tagsUsed=TTAGS.filter(function(g){return g[0]&&t.some(function(x){return x.tag===g[0];});});
+ var left='<div class="card"><div class="wh rust"><span class="t">To-do list</span><button class="ib" data-new="todo" title="Add with details">+</button></div><div class="bd">'+
+ '<div class="minis"><span class="pill">'+open+' to do</span>'+(late?'<span class="pill rust">'+late+' late</span>':'')+(done?'<span class="pill olive">'+done+' done 🎉</span>':'')+'</div>'+
+ addLine('todos',isPhone()?'add a to-do…':'add a to-do… try “call dentist tomorrow”')+
+ filterChips('todo',todoF,[['all','All'],['today','Today'],['week','This week'],['star','⭐ Important']].concat(tagsUsed))+
+ '<div style="margin-top:4px">'+todoListHtml()+'</div>'+
+ (done?'<div class="toolbar"><button class="link" data-clear="todos">Clear finished</button></div>':'')+'</div></div>';
+ return '<div class="cols c2">'+left+'<div class="card"><div class="wh mustard"><span class="t">Calendar</span><button class="ib" data-new="event" title="New event">+</button></div><div class="bd">'+calendar()+'</div></div></div>';}
+
+/* ---------- calendar ---------- */
+var calOverlay=localStorage.getItem('calOv')!=='0';
+if(!localStorage.getItem('calMode')&&window.innerWidth<=760)calMode='list';
+function occursOn(e,ds){if(!e.date)return false;if(e.date===ds)return true;var r=e.repeat;if(!r||ds<e.date)return false;if(e.until&&ds>e.until)return false;
+ var a=parseD(e.date),b=parseD(ds),diff=daysBetween(a,b);
+ if(r==='daily')return true;if(r==='weekly')return diff%7===0;if(r==='biweekly')return diff%14===0;
+ if(r==='monthly'){var last=new Date(b.getFullYear(),b.getMonth()+1,0).getDate();return b.getDate()===Math.min(a.getDate(),last);}
+ if(r==='yearly')return a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();return false;}
+function eventsOn(ds){return DB.events.filter(function(e){return occursOn(e,ds)&&!(e.skip&&e.skip.indexOf(ds)>=0);}).sort(function(a,b){return (a.time||'99')<(b.time||'99')?-1:1;});}
+function extrasOn(ds){var out=[];if(!calOverlay)return out;
+ DB.bills.forEach(function(b){var n=billNext(b);if(n&&iso(n)===ds&&!billPaid(b))out.push({k:'bill',id:b.id,t:'💌 '+b.name+(b.amount?' '+money(b.amount):'')});});
+ DB.kids.forEach(function(k){if(k.date===ds&&!k.done)out.push({k:'kid',id:k.id,t:(KEMO[k.type]||'🎒')+' '+(k.kid==='Both'?'':k.kid+': ')+k.title});});
+ DB.todos.forEach(function(t){if(t.due===ds&&!t.done&&t.star)out.push({k:'todo',id:t.id,t:'⭐ '+t.text});});return out;}
+function xchip(x){return '<span class="chip ghost '+x.k+'" data-xc="'+x.k+':'+x.id+'" title="'+esc(x.t)+'">'+esc(x.t)+'</span>';}
+function chip(e,short){return '<span class="chip '+esc(e.color||'oat')+'" data-ev="'+e.id+'" title="'+esc(e.title)+'">'+(e.time&&!short?'<span class="tm">'+fmtTime(e.time)+'</span>':'')+(e.repeat&&!short?'🔁 ':'')+esc(e.title)+'</span>';}
+function segHtml(){return '<span class="seg"><button data-cm="month" class="'+(calMode==='month'?'on':'')+'">Month</button><button data-cm="week" class="'+(calMode==='week'?'on':'')+'">Week</button><button data-cm="list" class="'+(calMode==='list'?'on':'')+'">List</button></span>';}
+function calendar(){var t=today(),td=iso(t),h='';
+ var tools='<div class="caltools"><button class="link" data-cal="today">Today</button><label class="tgl"><input type="checkbox" data-cal="ov"'+(calOverlay?' checked':'')+'> show bills &amp; school</label></div>';
+ if(calMode==='month'){var base=new Date(t.getFullYear(),t.getMonth()+calOff,1),start=monday(base);
+  h+='<div class="calhead"><button class="round" data-co="-1" aria-label="Previous">‹</button><b>'+MN[base.getMonth()]+' '+base.getFullYear()+'</b><button class="round" data-co="1" aria-label="Next">›</button>'+segHtml()+'</div>'+tools+'<div class="month">';
+  ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(function(d){h+='<div class="wd">'+d+'</div>';});
+  for(var i=0;i<42;i++){var d=addDays(start,i),ds=iso(d),ev=eventsOn(ds),xs=extrasOn(ds),all=ev.length+xs.length;if(i===35&&d.getMonth()!==base.getMonth())break;
+   h+='<div class="d'+(d.getMonth()!==base.getMonth()?' o':'')+(ds===td?' today':'')+'" data-day="'+ds+'"><span class="n">'+d.getDate()+'</span>'+ev.slice(0,3).map(function(e){return chip(e,true);}).join('')+xs.slice(0,Math.max(0,3-ev.length)).map(xchip).join('')+(all>3?'<span class="more">+'+(all-3)+' more</span>':'')+(xs.length&&ev.length>=3?'<i class="dotx"></i>':'')+'</div>';}
+  h+='</div>';}
+ else if(calMode==='week'){var m=addDays(monday(t),calOff*7),e6=addDays(m,6);
+  h+='<div class="calhead"><button class="round" data-co="-1" aria-label="Previous">‹</button><b>'+MN[m.getMonth()].slice(0,3)+' '+m.getDate()+' – '+MN[e6.getMonth()].slice(0,3)+' '+e6.getDate()+'</b><button class="round" data-co="1" aria-label="Next">›</button>'+segHtml()+'</div>'+tools+'<div class="wkview">';
+  for(var j=0;j<7;j++){var dd=addDays(m,j),s=iso(dd);h+='<div class="d'+(s===td?' today':'')+'" data-day="'+s+'"><div class="dh">'+DN[dd.getDay()]+'<small>'+dd.getDate()+'</small></div>'+eventsOn(s).map(function(e){return chip(e);}).join('')+extrasOn(s).map(xchip).join('')+'</div>';}
+  h+='</div>';}
+ else{var st=addDays(t,calOff*30),any=false;
+  h+='<div class="calhead"><button class="round" data-co="-1" aria-label="Earlier">‹</button><b>'+(calOff===0?'Next 30 days':MN[st.getMonth()].slice(0,3)+' '+st.getDate()+' onward')+'</b><button class="round" data-co="1" aria-label="Later">›</button>'+segHtml()+'</div>'+tools+'<div class="agenda">';
+  for(var k=0;k<30;k++){var ad=addDays(st,k),as=iso(ad),evs=eventsOn(as),xx=extrasOn(as);if(!evs.length&&!xx.length)continue;any=true;
+   h+='<div class="aday'+(as===td?' today':'')+'"><div class="adate" data-day="'+as+'"><b>'+ad.getDate()+'</b><span>'+DN[ad.getDay()]+'</span></div><div class="aitems">'+
+   evs.map(function(e){return '<div class="aev '+esc(e.color||'oat')+'" data-ev="'+e.id+'"><span class="atm">'+(e.time?fmtTime(e.time)+(e.end?'–'+fmtTime(e.end):''):'all day')+'</span>'+esc(e.title)+(e.repeat?' <small>🔁</small>':'')+'</div>';}).join('')+
+   xx.map(function(x){return '<div class="aev ghost" data-xc="'+x.k+':'+x.id+'">'+esc(x.t)+'</div>';}).join('')+'</div></div>';}
+  if(!any)h+=empty('🗓️','Nothing planned yet.<br>Tap + to add an event.');h+='</div>';}
+ return h+'<div class="hand" style="margin-top:8px">tap a day to see everything & add an event</div>';}
+function editEvent(e,date){e=e||{date:date||iso(today()),color:'mustard'};form({title:e.id?'Edit event':'New event',color:'var(--mustard)',required:'title',values:e,
+ fields:[{k:'title',label:'What’s happening?',ph:'Soccer practice'},{k:'date',label:e.repeat?'Starts on':'Date',t:'date'},{k:'time',label:'Start time (optional)',t:'time'},{k:'end',label:'End time (optional)',t:'time'},
+  {k:'repeat',label:'Repeat',t:'select',opts:REPS},{k:'until',label:'Repeat until (optional)',t:'date'},
+  {k:'color',label:'Color',t:'swatch'},{k:'note',label:'Notes',t:'area',ph:'Bring snacks'}],
+ onSave:function(v){if(!v.date)v.date=iso(today());if(!v.repeat)v.until='';save('events',Object.assign({},e,v));},onDelete:e.id?function(){remove('events',e.id);}:null});}
+function dayDialog(ds){var d=parseD(ds),ev=eventsOn(ds),me=mealFor(ds),td=DB.todos.filter(function(t){return t.due===ds;}),
+ bl=DB.bills.filter(function(b){var n=billNext(b);return n&&iso(n)===ds;}),kd=DB.kids.filter(function(k){return k.date===ds;}),b='';
+ function sec(title,inner){return inner?'<div class="dsec"><div class="ghead">'+title+'</div>'+inner+'</div>':'';}
+ b+=sec('📅 Events',ev.map(function(e){return '<div class="row"><span class="dotc '+esc(e.color||'oat')+'"></span><div class="tx" data-ev="'+e.id+'">'+(e.time?'<b>'+fmtTime(e.time)+(e.end?'–'+fmtTime(e.end):'')+'</b> ':'')+esc(e.title)+(e.repeat?' <span class="tiny">🔁 '+esc(REPNAME[e.repeat]||'')+'</span>':'')+(e.note?'<div class="meta" style="white-space:normal">'+esc(e.note)+'</div>':'')+'</div>'+(e.repeat&&e.date!==ds?'<button class="link" data-skip="'+e.id+':'+ds+'">skip this day</button>':'')+'</div>';}).join(''));
+ b+=sec('✅ To-dos due',td.map(todoRow).join(''));
+ b+=sec('💌 Bills due',bl.map(function(x){return '<div class="row"><div class="tx" data-edit="bills:'+x.id+'">'+esc(x.name)+' <b>'+esc(money(x.amount))+'</b></div><button class="paid'+(billPaid(x)?' on':'')+'" data-paid="'+x.id+'">'+(billPaid(x)?'✓ Paid':'Mark paid')+'</button></div>';}).join(''));
+ b+=sec('🎒 Kids & school',kd.map(function(k){return '<div class="row'+(k.done?' done':'')+'"><input type="checkbox" class="ck" data-tog="kids:'+k.id+':done"'+(k.done?' checked':'')+'><div class="tx" data-edit="kids:'+k.id+'">'+(KEMO[k.type]||'')+' '+esc(k.kid==='Both'?'Both':k.kid)+': '+esc(k.title)+'</div></div>';}).join(''));
+ b+=sec('🍲 Dinner',me&&me.dinner?'<div class="row"><div class="tx">'+esc(me.dinner)+(me.made?' ✓':'')+'</div></div>':'');
+ if(!b)b=empty('☕','Nothing on this day yet.');
+ var v=sheet(DNL[d.getDay()]+', '+MN[d.getMonth()]+' '+d.getDate(),'var(--mustard)','<div data-dayds="'+ds+'">'+b+'</div>','<button class="btn soft sm" data-daytodo="'+ds+'">+ To-do</button><span class="sp"></span><button class="btn" data-dayev="'+ds+'">+ Add event</button>');
+ return v;}
+function refreshDay(){var w=document.querySelector('[data-dayds]');if(!w)return;var ds=w.getAttribute('data-dayds');closeSheets();dayDialog(ds);}
+
+/* ---------- groceries ---------- */
+var AISLES=[['produce','🥦 Produce'],['dairy','🥛 Dairy & eggs'],['meat','🍗 Meat & fish'],['bakery','🍞 Bakery & bread'],['pantry','🥫 Pantry'],['frozen','🧊 Frozen'],['snacks','🍪 Snacks & drinks'],['house','🧻 Household'],['care','🧴 Personal care'],['kids','🧸 Baby & kids'],['other','🛒 Other']];
+var AISLEMAP={};AISLES.forEach(function(a){AISLEMAP[a[0]]=a[1];});
+var AISLEKW={produce:'apple banana orange grape berr strawberr blueberr lemon lime avocado tomato potato onion garlic lettuce salad spinach carrot celery broccoli pepper cucumber corn mushroom fruit veg cilantro herb squash pumpkin zucchini kale cabbage peach pear melon pineapple',
+ dairy:'milk egg cheese butter yogurt yoghurt cream sour creamer cottage half',
+ meat:'chicken beef pork turkey ham bacon sausage steak ground fish salmon tuna shrimp hot dog meat roast',
+ bakery:'bread bun roll bagel tortilla muffin cake pie croissant',
+ pantry:'rice pasta noodle flour sugar salt oil vinegar sauce soup bean can cereal oat peanut jelly jam honey spice seasoning broth stock syrup ketchup mustard mayo coffee tea baking mix',
+ frozen:'frozen ice pizza waffle nugget fries tater popsicle',
+ snacks:'chip cracker cookie snack candy soda juice water pop gatorade goldfish pretzel popcorn bar drink',
+ house:'paper towel toilet trash bag detergent soap dish foil wrap napkin clean bleach sponge battery batteries laundry dryer',
+ care:'shampoo conditioner toothpaste toothbrush deodorant lotion razor tampon pad floss vitamin medicine tylenol advil band',
+ kids:'diaper wipe formula pull-up pullup baby'};
+function guessAisle(item){var s=' '+String(item||'').toLowerCase()+' ',best='';
+ Object.keys(AISLEKW).forEach(function(k){if(best)return;AISLEKW[k].split(' ').some(function(w){if(w&&s.indexOf(w)>=0){best=k;return true;}return false;});});return best||'other';}
+function groceryRow(g){return '<div class="row'+(g.got?' done':'')+'"><input type="checkbox" class="ck mustard" data-tog="groceries:'+g.id+':got"'+(g.got?' checked':'')+'><div class="tx" data-edit="groceries:'+g.id+'">'+esc(g.item)+(g.note?'<div class="meta2"><span class="tiny">'+esc(g.note)+'</span></div>':'')+'</div>'+(g.gf?'<span class="pill olive">GF</span>':'')+(g.qty&&g.qty!=='1'?'<span class="pill mustard">×'+esc(g.qty)+'</span>':'')+'<button class="x" data-rm="groceries:'+g.id+'" aria-label="Remove">✕</button></div>';}
+function grocSorted(){return DB.groceries.slice().sort(function(a,b){if(!!a.got!==!!b.got)return a.got?1:-1;return byCreated(a,b);});}
+function groceryGrouped(){var g=grocSorted(),open=g.filter(function(x){return !x.got;}),got=g.filter(function(x){return x.got;}),h='';
+ AISLES.forEach(function(a){var items=open.filter(function(x){return (x.aisle||guessAisle(x.item))===a[0];});if(items.length)h+='<div class="ghead">'+a[1]+'</div>'+items.map(groceryRow).join('');});
+ if(got.length)h+='<div class="ghead">✓ In the cart</div>'+got.map(groceryRow).join('');return h;}
+function editGrocery(g){form({title:'Edit grocery item',color:'var(--mustard)',required:'item',values:Object.assign({},g,{aisle:g.aisle||guessAisle(g.item),gf:g.gf?'1':''}),fields:[{k:'item',label:'Item'},{k:'qty',label:'How many?',ph:'1'},
+ {k:'aisle',label:'Aisle',t:'select',opts:AISLES},{k:'gf',label:'Gluten-free?',t:'chips',opts:[['','Any'],['1','GF only']]},{k:'note',label:'Note (brand, size…)'}],
+ onSave:function(v){v.gf=!!v.gf;save('groceries',Object.assign({},g,v));},onDelete:function(){remove('groceries',g.id);}});}
+function addGrocery(text,extra){text=String(text||'').trim();if(!text)return;var q='1',m=text.match(/^(\d+)\s*x?\s+(.+)$/i)||null,m2=text.match(/^(.+?)\s+x\s*(\d+)$/i);
+ if(m){q=m[1];text=m[2];}else if(m2){text=m2[1];q=m2[2];}
+ var dup=DB.groceries.filter(function(x){return !x.got&&x.item.toLowerCase()===text.toLowerCase();})[0];if(dup&&!extra)return save('groceries',Object.assign({},dup,{qty:String((parseInt(dup.qty,10)||1)+(parseInt(q,10)||1))}));
+ if(dup)return dup;return save('groceries',Object.assign({item:text,qty:q,got:false,aisle:guessAisle(text)},extra||{}));}
+function quickAdd(col,text,el){text=text.trim();if(!text)return;
+ if(col==='todos'){var p=parseWhen(text);save('todos',{text:p.text,done:false,due:p.due});if(p.due)toast('Added for '+nice(p.due));}
+ else if(col==='groceries')addGrocery(text);
+ else if(col==='brain')save('brain',{text:text,done:false,color:NOTE_COLORS[DB.brain.length%NOTE_COLORS.length]});
+ else if(col==='kids'){save('kids',{kid:el.getAttribute('data-kid')||'Weston',title:text,type:'note',done:false,date:''});}
+ else if(col==='listitem'){var l=find('lists',el.getAttribute('data-list'));if(!l)return;var L=JSON.parse(JSON.stringify(l));L.items=L.items||[];L.items.push({id:uid(),text:text,done:false});save('lists',L);}
+ else if(col==='idea'){var I=ideasDoc();I.items.push({id:uid(),text:text,ingr:'',gf:false});save('lists',I);}
+}
+
+/* ---------- meals & meal ideas ---------- */
+function ideasDoc(){var d=find('lists','meal-ideas');return d?JSON.parse(JSON.stringify(d)):{id:'meal-ideas',kind:'meals',name:'Meal ideas',emoji:'🍲',color:'oat',items:[]};}
+function ideaByName(n){n=String(n||'').trim().toLowerCase();if(!n)return null;return (ideasDoc().items||[]).filter(function(x){return x.text.toLowerCase()===n;})[0]||null;}
+function ingrList(s){return String(s||'').split(/\n|,/).map(function(x){return x.trim();}).filter(Boolean);}
+function addIngredients(idea){var n=0,gf=!!idea.gf;ingrList(idea.ingr).forEach(function(x){var had=DB.groceries.some(function(g){return !g.got&&g.item.toLowerCase()===x.toLowerCase();});if(!had){addGrocery(x,{gf:false});n++;}});
+ toast(n?n+' ingredient'+(n===1?'':'s')+' added to groceries 🛒':'Everything’s already on your list');}
+function setDinner(ds,text){var me=mealFor(ds);if(!text){if(me)remove('meals',me.id,true);return;}save('meals',Object.assign({id:'d'+ds.replace(/-/g,''),date:ds,made:false},me||{},{dinner:text}));}
+function editIdea(it){var I=ideasDoc();it=it||{};form({title:it.id?'Edit meal idea':'New meal idea',color:'var(--caramel)',required:'text',values:Object.assign({},it,{gf:it.gf?'1':''}),fields:[
+ {k:'text',label:'Meal',ph:'Crockpot chili'},{k:'ingr',label:'Ingredients (one per line)',t:'area',ph:'ground beef\nbeans\nchili seasoning'},
+ {k:'gf',label:'Gluten-free?',t:'chips',opts:[['','Not marked'],['1','🌾 GF friendly']]},{k:'link',label:'Recipe link (optional)',ph:'https://…'}],
+ onSave:function(v){v.gf=!!v.gf;if(it.id)I.items=I.items.map(function(x){return x.id===it.id?Object.assign({},x,v):x;});else I.items.push(Object.assign({id:uid()},v));save('lists',I);},
+ onDelete:it.id?function(){var old=find('lists','meal-ideas');I.items=I.items.filter(function(x){return x.id!==it.id;});save('lists',I);toast('Removed',function(){save('lists',old);});}:null});}
+function planIdea(it){var opts=[],m=monday(today());for(var i=0;i<14;i++){var d=addDays(m,i),ds=iso(d);if(ds<iso(today()))continue;var me=mealFor(ds);opts.push([ds,(i<7?'':'Next ')+DNL[d.getDay()]+' '+(d.getMonth()+1)+'/'+d.getDate()+(me&&me.dinner?' (has '+me.dinner+')':'')]);}
+ form({title:'Plan “'+it.text+'”',color:'var(--caramel)',ok:'Plan it',values:{day:opts[0][0],ing:ingrList(it.ingr).length?'1':''},fields:[{k:'day',label:'Which night?',t:'select',opts:opts},{k:'ing',label:'Groceries',t:'chips',opts:[['1','🛒 Add ingredients'],['','Skip']]}],
+ onSave:function(v){setDinner(v.day,it.text);if(v.ing)addIngredients(it);else toast('Planned for '+nice(v.day)+' 🍲');}});}
+function pickIdea(ds){var I=ideasDoc().items||[];if(!I.length){toast('Add a few meal ideas first 💡');return;}
+ var d=parseD(ds),v=sheet('Dinner for '+DNL[d.getDay()]+' '+(d.getMonth()+1)+'/'+d.getDate(),'var(--caramel)','<div class="ideapick">'+I.map(function(x){return '<button class="ideab" data-pickidea="'+ds+':'+x.id+'">'+esc(x.text)+(x.gf?' <span class="pill olive">GF</span>':'')+'</button>';}).join('')+'</div>');return v;}
+var mealWeek=0;
+function mealsPage(){var m=addDays(monday(today()),mealWeek*7),td=iso(today()),rows='';
+ for(var i=0;i<7;i++){var d=addDays(m,i),ds=iso(d),me=mealFor(ds)||{},idea=ideaByName(me.dinner);
+  rows+='<div class="dayrow'+(ds===td?' today':'')+'"><div class="dn">'+DN[d.getDay()]+'<small>'+MN[d.getMonth()].slice(0,3)+' '+d.getDate()+'</small></div><input class="din" data-din="'+ds+'" value="'+esc(me.dinner||'')+'" placeholder="what’s for dinner?" autocomplete="off" enterkeyhint="done" list="ideaopts">'+
+  (idea&&ingrList(idea.ingr).length?'<button class="ib2" data-ingr="'+idea.id+'" title="Add ingredients to groceries">🛒</button>':'<button class="ib2" data-pickday="'+ds+'" title="Pick from meal ideas">💡</button>')+
+  '<input type="checkbox" class="ck olive" title="Made it!" data-made="'+ds+'"'+(me.made?' checked':'')+(me.dinner?'':' disabled style="opacity:.35"')+'></div>';}
+ var g=DB.groceries,got=g.filter(function(x){return x.got;}).length,I=ideasDoc().items||[];
+ var dl='<datalist id="ideaopts">'+I.map(function(x){return '<option value="'+esc(x.text)+'">';}).join('')+'</datalist>';
+ return '<div class="cols">'+
+ '<div class="card"><div class="wh oat"><span class="t">Dinner plan</span></div><div class="bd"><div class="hand">type a meal, or tap 💡 to pick an idea</div><div class="weeknav"><button class="round" data-mw="-1" aria-label="Previous week">‹</button><b>'+(mealWeek===0?'This week':mealWeek===1?'Next week':mealWeek===-1?'Last week':'Week of '+MN[m.getMonth()].slice(0,3)+' '+m.getDate())+'</b><button class="round" data-mw="1" aria-label="Next week">›</button></div>'+rows+dl+
+ '<div class="toolbar"><button class="link" data-mealcopy="'+iso(m)+'">Copy last week</button><button class="link" data-mealclear="'+iso(m)+'">Clear week</button></div></div></div>'+
+ '<div class="card"><div class="wh mustard"><span class="t">Grocery list</span></div><div class="bd">'+addLine('groceries','add an item… “2 milk” works','mustard')+'<div style="margin-top:6px">'+(g.length?groceryGrouped():empty('🧺','Your list is empty.<br>Add milk, eggs, coffee beans…'))+'</div>'+
+ (got?'<div class="toolbar"><span class="pill">'+got+' in the cart</span><button class="link" data-clear="groceries">Clear checked items</button></div>':'')+'</div></div>'+
+ '<div class="card"><div class="wh caramel"><span class="t">Meal ideas</span><button class="ib" data-newidea title="Add with ingredients">+</button></div><div class="bd"><div class="hand">your go-to dinners · tap one to plan it</div>'+
+ (I.length?I.map(function(x){var n=ingrList(x.ingr).length;return '<div class="row"><div class="tx" data-planidea="'+x.id+'">'+esc(x.text)+'<div class="meta2">'+(n?'<span class="tiny">🛒 '+n+' ingredient'+(n===1?'':'s')+'</span>':'<span class="tiny">no ingredients yet</span>')+(x.link?'<span class="tiny">🔗 recipe</span>':'')+'</div></div>'+(x.gf?'<span class="pill olive">GF</span>':'')+'<button class="ib2" data-editidea="'+x.id+'" title="Edit">✎</button></div>';}).join(''):empty('💡','Save the dinners you make<br>again and again.'))+
+ addLine('idea','add a meal idea…')+'</div></div></div>';}
+
+/* ---------- lists ---------- */
+var LTPL=[['','✨ Blank'],['pack','🧳 Packing'],['gifts','🎁 Christmas gifts'],['cricut','✂️ Cricut project'],['clean','🧽 Cleaning'],['party','🎉 Party']];
+var LTPLITEMS={pack:['Pajamas','Toothbrushes','Phone chargers','Snacks for the car','Medicine','Extra socks'],gifts:['Blake','Weston','Holden','Teachers','Stocking stuffers'],
+ cricut:['Pick design','Buy vinyl / blanks','Cut & weed','Press or apply','Photo for Facebook'],clean:['Dishes','Laundry','Wipe counters','Vacuum','Bathrooms','Take out trash'],party:['Guest list','Invites','Food','Decorations','Cake','Party favors']};
+var LTPLEMO={pack:'🧳',gifts:'🎁',cricut:'✂️',clean:'🧺',party:'🎄'};
+function editList(l){var isNew=!l;l=l||{emoji:'📝',color:'caramel',items:[]};var fields=[{k:'name',label:'List name',ph:'Cricut projects'}];
+ if(isNew)fields.push({k:'tpl',label:'Start from',t:'chips',opts:LTPL});
+ fields.push({k:'emoji',label:'Little icon',t:'chips',opts:[['📝','📝'],['✂️','✂️'],['🎄','🎄'],['🏡','🏡'],['🎁','🎁'],['📚','📚'],['🧺','🧺'],['✨','✨'],['🧳','🧳'],['🎉','🎉']]},{k:'color',label:'Color',t:'swatch'},{k:'note',label:'Notes (optional)',t:'area'});
+ form({title:isNew?'New list':'Edit list',color:'var(--caramel)',required:'name',values:Object.assign({tpl:''},l),fields:fields,
+ onSave:function(v){var items=l.items||[];if(isNew&&v.tpl){items=LTPLITEMS[v.tpl].map(function(t){return {id:uid(),text:t,done:false};});if(v.emoji==='📝'&&LTPLEMO[v.tpl])v.emoji=LTPLEMO[v.tpl];}delete v.tpl;save('lists',Object.assign({},l,v,{items:items}));},
+ onDelete:!isNew?function(){remove('lists',l.id);}:null,
+ extra:!isNew});}
+function listsPage(){var ls=DB.lists.filter(function(l){return !l.kind;}).sort(function(a,b){return (a.order!=null?a.order:a.created||0)-(b.order!=null?b.order:b.created||0);});
+ return '<div class="listgrid">'+ls.map(function(l,li){var items=l.items||[],done=items.filter(function(x){return x.done;}).length,open=items.filter(function(x){return !x.done;}),fin=items.filter(function(x){return x.done;});
+  function itemRow(it){var idx=items.indexOf(it);return '<div class="row'+(it.done?' done':'')+'"><input type="checkbox" class="ck" data-li="'+l.id+':'+it.id+'"'+(it.done?' checked':'')+'><div class="tx" data-lie="'+l.id+':'+it.id+'">'+esc(it.text)+'</div>'+(!it.done&&idx>0?'<button class="x up" data-liup="'+l.id+':'+it.id+'" aria-label="Move up" title="Move up">↑</button>':'')+'<button class="x" data-lirm="'+l.id+':'+it.id+'" aria-label="Remove">✕</button></div>';}
+  return '<div class="card"><div class="wh '+esc(l.color||'caramel')+'"><span class="t">'+esc(l.emoji||'📝')+' '+esc(l.name)+'</span>'+(li>0?'<button class="ib" data-lmove="'+l.id+':-1" title="Move list left">‹</button>':'')+'<button class="ib" data-ldup="'+l.id+'" title="Make a copy">⧉</button><button class="ib" data-editlist="'+l.id+'" title="Rename or delete">✎</button></div><div class="bd">'+
+  (items.length?'<div class="minis"><span class="pill'+(done===items.length?' olive':'')+'">'+done+' of '+items.length+' done'+(done===items.length?' 🎉':'')+'</span></div>'+progress(done,items.length):'')+
+  (l.note?'<div class="lnote">'+esc(l.note)+'</div>':'')+
+  (items.length?open.map(itemRow).join('')+fin.map(itemRow).join(''):empty('✂️','Nothing here yet.'))+
+  addLine('listitem','add to this list…','',' data-list="'+l.id+'"')+(done?'<div class="toolbar"><button class="link" data-liuncheck="'+l.id+'">Uncheck all</button><button class="link" data-liclear="'+l.id+'">Clear done</button></div>':'')+'</div></div>';}).join('')+
+ '<div class="newlist" data-new="list"><div><div class="p">+</div>start a new list<br><small>packing, gifts, Cricut & more</small></div></div></div>';}
+
+/* ---------- brain dump ---------- */
+var brainQ='',brainC='';
+function brainSorted(){return DB.brain.slice().sort(function(a,b){if(!!a.done!==!!b.done)return a.done?1:-1;if(!!a.pin!==!!b.pin)return a.pin?-1:1;return (b.created||0)-(a.created||0);});}
+function editBrain(n){var isNew=!n;n=n||{color:NOTE_COLORS[Math.floor(Math.random()*NOTE_COLORS.length)]};var fields=[{k:'text',label:'Your thought',t:'area',ph:'Idea for costume…'},{k:'color',label:'Note color',t:'swatch',opts:NOTE_COLORS.map(function(c){return [c,NOTE_HEX[c]];})},{k:'pin',label:'Pin to the top?',t:'chips',opts:[['','No'],['1','📌 Pin it']]}];
+ if(!isNew)fields.push({k:'move',label:'Turn it into…',t:'chips',opts:[['','Keep as a note'],['todo','✅ To-do'],['grocery','🛒 Grocery'],['event','📅 Event'],['kid','🎒 Kids & school'],['idea','🍲 Meal idea']]});
+ form({title:isNew?'New note':'Edit note',color:'#C9A23A',required:'text',values:Object.assign({},n,{pin:n.pin?'1':'',move:''}),fields:fields,
+ onSave:function(v){var mv=v.move;delete v.move;v.pin=!!v.pin;if(!mv){save('brain',Object.assign({},n,v));return;}convertNote(Object.assign({},n,v),mv);},onDelete:!isNew?function(){remove('brain',n.id);}:null});}
+function convertNote(n,mv){var old=find('brain',n.id),txt=n.text.split('\n')[0].trim(),made=null;
+ if(mv==='todo'){var p=parseWhen(txt);made=['todos',save('todos',{text:p.text,due:p.due,done:false,note:n.text.indexOf('\n')>0?n.text:''})];}
+ else if(mv==='grocery'){var items=n.text.split(/\n|,/).map(function(x){return x.trim();}).filter(Boolean);items.forEach(function(x){addGrocery(x);});remove('brain',n.id,true);toast(items.length+' added to groceries 🛒',function(){save('brain',old);});return;}
+ else if(mv==='kid')made=['kids',save('kids',{kid:'Both',title:txt,type:'note',done:false,date:'',note:n.text.indexOf('\n')>0?n.text:''})];
+ else if(mv==='idea'){var I=ideasDoc();I.items.push({id:uid(),text:txt,ingr:n.text.split('\n').slice(1).join('\n'),gf:false});save('lists',I);made=['lists',null];}
+ else if(mv==='event'){remove('brain',n.id,true);editEvent({title:txt,date:iso(today()),color:'mustard',note:n.text.indexOf('\n')>0?n.text:''});return;}
+ remove('brain',n.id,true);var lbl={todo:'to-do',kid:'Kids & School',idea:'meal ideas'}[mv];
+ toast('Moved to '+lbl+' ✨',function(){save('brain',old);if(made&&made[1])remove(made[0],made[1].id,true);});}
+function notesHtml(){var q=brainQ.toLowerCase(),n=brainSorted().filter(function(x){return (!q||String(x.text).toLowerCase().indexOf(q)>=0)&&(!brainC||x.color===brainC);});
+ if(!n.length)return '<div class="card"><div class="bd">'+empty('💡',DB.brain.length?'No notes match.':'Your brain dump is empty.<br>Ideas, worries, “don’t forget”s – toss them here.')+'</div></div>';
+ return '<div class="notes">'+n.map(function(x){return '<div class="note c-'+esc(x.color||'yellow')+(x.done?' done':'')+(x.pin?' pinned':'')+'" data-edit="brain:'+x.id+'"><span class="pin"></span>'+(x.pin?'<span class="pinmark">📌</span>':'')+'<div class="nt">'+esc(x.text).replace(/\n/g,'<br>')+'</div><div class="nb"><input type="checkbox" class="ck olive" data-tog="brain:'+x.id+':done"'+(x.done?' checked':'')+' title="Done"><span>'+(x.created>1e12?nice(iso(new Date(x.created))):'')+'</span><button class="x" data-rm="brain:'+x.id+'" aria-label="Remove">✕</button></div></div>';}).join('')+'</div>';}
+function brainPage(){var done=DB.brain.filter(function(x){return x.done;}).length;
+ return '<div class="capture"><textarea id="cap" placeholder="What’s on your mind? Type it here…"></textarea><button class="btn mustard" id="capbtn">Save it</button></div>'+
+ (DB.brain.length?'<div class="bfilter"><input class="cozy sm" id="bq" type="search" placeholder="🔎 search notes" value="'+esc(brainQ)+'" autocomplete="off"><div class="swatches mini"><button class="sw'+(brainC?'':' on')+' allc" data-bc="" aria-label="All colors">all</button>'+NOTE_COLORS.map(function(c){return '<button class="sw'+(brainC===c?' on':'')+'" data-bc="'+c+'" style="background:'+NOTE_HEX[c]+'" aria-label="'+c+'"></button>';}).join('')+'</div>'+(done?'<button class="link" data-clear="brain">Clear done ('+done+')</button>':'')+'</div><div class="hand" style="margin:-4px 0 8px">tap a note to edit, pin it, or turn it into a to-do, grocery or event</div>':'')+
+ '<div id="notesw">'+notesHtml()+'</div>';}
+
+/* ---------- bills ---------- */
+var BCATS=[['','None'],['home','🏡 Housing'],['util','💡 Utilities'],['phone','📱 Phone & internet'],['subs','📺 Subscriptions'],['car','🚗 Car'],['kids','🎒 Kids & school'],['debt','💳 Cards & loans'],['ins','🛡️ Insurance'],['other','✨ Other']];
+var BCATMAP={};BCATS.forEach(function(c){BCATMAP[c[0]]=c[1];});
+function billNext(b){var t=today(),f=b.freq||'monthly';
+ if(f==='once'){return parseD(b.dueDate)||t;}
+ if(f==='yearly'){var mo=Math.min(Math.max(parseInt(b.dueMonth,10)||1,1),12)-1,dd=Math.min(Math.max(parseInt(b.dueDay,10)||1,1),31);
+  function mky(y){var last=new Date(y,mo+1,0).getDate();return new Date(y,mo,Math.min(dd,last));}
+  var y=mky(t.getFullYear());if(b.paidFor===String(y.getFullYear()))y=mky(t.getFullYear()+1);else if(y<t&&daysBetween(y,t)>31)y=mky(t.getFullYear()+1);return y;}
+ var d=Math.min(Math.max(parseInt(b.dueDay,10)||1,1),31);function mk(y,m){var last=new Date(y,m+1,0).getDate();return new Date(y,m,Math.min(d,last));}
+ var x=mk(t.getFullYear(),t.getMonth());if(b.paidFor===monthKey(t))x=mk(t.getFullYear(),t.getMonth()+1);return x;}
+function billKey(b){var f=b.freq||'monthly';if(f==='once')return 'once';if(f==='yearly')return String(billNext(Object.assign({},b,{paidFor:''})).getFullYear());return monthKey();}
+function billPaid(b){var f=b.freq||'monthly';if(b.auto&&f!=='once'&&!b.paidFor){var dn=billNext(Object.assign({},b,{paidFor:''}));if(dn<=today()&&daysBetween(dn,today())<=31)return true;}if(f==='once')return b.paidFor==='once';if(f==='yearly')return b.paidFor===String(billNext(Object.assign({},b,{paidFor:''})).getFullYear());return b.paidFor===monthKey();}
+function togglePaid(id){var b=find('bills',id);if(!b)return;var was=billPaid(b),k=billKey(b),h=(b.history||[]).filter(function(x){return x.k!==k;});
+ if(!was)h.push({k:k,on:iso(today()),amt:b.amount||''});save('bills',Object.assign({},b,{paidFor:was?'':k,history:h.slice(-24)}));if(!was)toast(b.name+' marked paid 🌿');}
+function editBill(b){b=b||{freq:'monthly'};form({title:b.id?'Edit bill':'New bill',color:'var(--olive)',required:'name',values:Object.assign({},b,{freq:b.freq||'monthly',auto:b.auto?'1':'',dueMonth:b.dueMonth?String(b.dueMonth):''}),fields:[
+ {k:'name',label:'Bill',ph:'Electric'},{k:'amount',label:'Amount',t:'number',ph:'85.00'},
+ {k:'freq',label:'How often?',t:'chips',opts:[['monthly','Every month'],['yearly','Once a year'],['once','Just once']]},
+ {k:'dueDay',label:'Due day of the month (monthly & yearly)',t:'number',min:1,max:31,ph:'15'},
+ {k:'dueMonth',label:'Month (yearly bills)',t:'select',opts:[['','–']].concat(MN.map(function(m,i){return [String(i+1),m];}))},
+ {k:'dueDate',label:'Due date (one-time bills)',t:'date'},
+ {k:'cat',label:'Category',t:'select',opts:BCATS},{k:'auto',label:'Autopay?',t:'chips',opts:[['','I pay it'],['1','🔁 Autopay']]},
+ {k:'note',label:'Notes (card, account…)',t:'area'}],
+ onSave:function(v){v.dueDay=Math.min(Math.max(parseInt(v.dueDay,10)||1,1),31);v.auto=!!v.auto;if(v.freq==='once'&&!v.dueDate)v.dueDate=iso(today());save('bills',Object.assign({},b,v));},onDelete:b.id?function(){remove('bills',b.id);}:null});
+ setTimeout(billFormSync,30);}
+function billFormSync(){var dlg=document.querySelector('.veil:last-child .dlg');if(!dlg)return;var fc=dlg.querySelector('[data-k="freq"]');if(!fc)return;
+ function upd(){var on=fc.querySelector('.on'),f=on?on.getAttribute('data-v'):'monthly';function show(k,y){var el=dlg.querySelector('[data-k="'+k+'"]');if(el){var fld=el.closest('.field');if(fld)fld.style.display=y?'':'none';}}
+  show('dueDay',f!=='once');show('dueMonth',f==='yearly');show('dueDate',f==='once');}
+ fc.addEventListener('click',function(){setTimeout(upd,0);});upd();}
+function billsInMonth(){var t=today(),out=[];DB.bills.forEach(function(b){var f=b.freq||'monthly';
+ if(f==='monthly'){out.push(b);return;}var n=billNext(Object.assign({},b,{paidFor:''}));if(n.getFullYear()===t.getFullYear()&&n.getMonth()===t.getMonth())out.push(b);});return out;}
+function billsPage(){var t=today(),mb=billsInMonth(),tot=0,paid=0;mb.forEach(function(x){tot+=num(x.amount);if(billPaid(x))paid+=num(x.amount);});
+ var all=DB.bills.slice().sort(function(x,y){return billNext(x)-billNext(y);}),late=[],week=[],later=[],done=[];
+ all.forEach(function(b){if(billPaid(b)){done.push(b);return;}var dl=daysBetween(t,billNext(b));if(dl<0)late.push(b);else if(dl<=7)week.push(b);else later.push(b);});
+ function grp(title,arr,cls){return arr.length?'<div class="ghead'+(cls?' '+cls:'')+'">'+title+'</div>'+arr.map(billRow).join(''):'';}
+ var yearly=DB.bills.filter(function(b){return (b.freq||'monthly')==='monthly';}).reduce(function(s,b){return s+num(b.amount);},0)*12+DB.bills.filter(function(b){return b.freq==='yearly';}).reduce(function(s,b){return s+num(b.amount);},0);
+ var cats={};DB.bills.forEach(function(b){if((b.freq||'monthly')!=='monthly')return;var c=b.cat||'other';cats[c]=(cats[c]||0)+num(b.amount);});
+ var catH=Object.keys(cats).sort(function(a,b){return cats[b]-cats[a];}).map(function(c){return '<div class="catrow"><span>'+esc(BCATMAP[c]||'✨ Other')+'</span><b>'+money(cats[c])+'</b></div>';}).join('');
+ return '<div class="billsum"><div class="stat"><div class="k">Due in '+MN[t.getMonth()]+'</div><div class="v">'+money(tot||0)+'</div></div><div class="stat"><div class="k">Paid so far</div><div class="v" style="color:var(--olive)">'+money(paid||0)+'</div></div><div class="stat"><div class="k">Still to pay</div><div class="v">'+money(Math.max(tot-paid,0))+'</div></div></div>'+
+ (tot?progress(paid,tot,'big olive'):'')+
+ '<div class="cols c2"><div class="card"><div class="wh olive"><span class="t">My bills</span><button class="ib" data-new="bill" title="Add a bill">+</button></div><div class="bd">'+
+ (all.length?grp('🌿 Not marked paid yet',late,'late')+grp('⏳ Due in the next 7 days',week)+grp('📅 Coming up',later)+grp('✓ Paid',done):empty('💌','No bills yet. Tap + to add rent, phone, electric…'))+
+ '<div style="margin-top:12px;text-align:center"><button class="btn olive" data-new="bill">+ Add a bill</button></div></div></div>'+
+ '<div class="card"><div class="wh oat"><span class="t">Where it goes</span></div><div class="bd"><div class="hand">monthly bills by category</div>'+(catH||empty('🌿','Add bills to see the breakdown.'))+
+ (yearly?'<div class="catrow tot"><span>About a year of bills</span><b>'+money(Math.round(yearly))+'</b></div>':'')+'</div></div></div>';}
+function billRow(x){var p=billPaid(x),nx=billNext(x),dl=daysBetween(today(),nx),f=x.freq||'monthly',last=(x.history||[]).slice(-1)[0];
+ var when=p?(f==='once'?'paid'+(last?' '+nice(last.on):''):'paid'+(last&&last.on?' '+nice(last.on):'')+' · next '+nice(iso(nx))):dl<0?'was due '+nice(iso(nx)):dl===0?'due today':dl===1?'due tomorrow':'due '+nice(iso(nx))+' · '+dl+' days';
+ return '<div class="bill"><div class="bn" data-edit="bills:'+x.id+'"><b>'+esc(x.name)+'</b><span class="bmeta"><span class="pill'+(!p&&dl<=3?' rust':p?' olive':'')+'">'+when+'</span>'+(x.auto?'<span class="tiny">🔁 autopay</span>':'')+(f!=='monthly'?'<span class="tiny">'+(f==='yearly'?'yearly':'one-time')+'</span>':'')+(x.cat&&BCATMAP[x.cat]?'<span class="tiny">'+esc(BCATMAP[x.cat])+'</span>':'')+'</span></div><span class="amt">'+esc(money(x.amount))+'</span><button class="paid'+(p?' on':'')+'" data-paid="'+x.id+'">'+(p?'✓ Paid':'Mark paid')+'</button></div>';}
+
+/* ---------- kids & school ---------- */
+var kidF=localStorage.getItem('kidF')||'all';
+function kidItem(x,k){return '<div class="row'+(x.done?' done':'')+'"><input type="checkbox" class="ck'+(k==='Holden'?' olive':'')+'" data-tog="kids:'+x.id+':done"'+(x.done?' checked':'')+'><span title="'+esc(x.type)+'">'+(KEMO[x.type]||'📝')+'</span><div class="tx" data-edit="kids:'+x.id+'">'+esc(x.title)+(x.note?'<div class="meta" style="white-space:normal;font-weight:600">'+esc(x.note)+'</div>':'')+'</div>'+(x.kid==='Both'?'<span class="pill">both</span>':'')+(x.date?'<span class="pill'+(x.date<iso(today())&&!x.done?' rust':' mustard')+'">'+esc(nice(x.date))+'</span>':'')+'<button class="x" data-rm="kids:'+x.id+'" aria-label="Remove">✕</button></div>';}
+function kidsPage(){var cols={Weston:'rust',Holden:'olive'},td=iso(today()),lim=iso(addDays(today(),14));
+ var soon=DB.kids.filter(function(x){return !x.done&&x.date&&x.date>=td&&x.date<=lim;}).sort(function(a,b){return a.date<b.date?-1:1;});
+ var strip='<div class="card soon"><div class="wh mustard"><span class="t">Coming up · next 2 weeks</span><button class="ib" data-newkid="Both" title="Add for both boys">+</button></div><div class="bd">'+
+ (soon.length?'<div class="soonrow">'+soon.map(function(x){var d=parseD(x.date);return '<div class="soonc '+(x.kid==='Holden'?'h':x.kid==='Both'?'b':'w')+'" data-edit="kids:'+x.id+'"><div class="sd"><b>'+d.getDate()+'</b>'+DN[d.getDay()]+'</div><div class="st">'+(KEMO[x.type]||'')+' '+esc(x.title)+'<small>'+esc(x.kid==='Both'?'both boys':x.kid)+'</small></div></div>';}).join('')+'</div>':'<div class="hand">nothing with a date in the next two weeks 🍂</div>')+'</div></div>';
+ var fl=filterChips('kid',kidF,[['all','All'],['form','📄 Forms'],['item','🎒 Bring / buy'],['date','📅 Dates'],['note','📝 Notes'],['open','Not done']]);
+ return strip+fl+'<div class="cols">'+KIDS.map(function(k){var items=DB.kids.filter(function(x){return (x.kid===k||x.kid==='Both')&&(kidF==='all'||(kidF==='open'?!x.done:x.type===kidF));}).sort(function(a,b){if(!!a.done!==!!b.done)return a.done?1:-1;var ad=a.date||'9999',bd=b.date||'9999';return ad<bd?-1:ad>bd?1:byCreated(a,b);});
+  var open=DB.kids.filter(function(x){return (x.kid===k||x.kid==='Both')&&!x.done;}).length;
+  return '<div class="card"><div class="wh '+cols[k]+'"><span class="t">'+k+(open?' · '+open+' open':'')+'</span><button class="ib" data-newkid="'+k+'" title="Add with details">+</button></div><div class="bd">'+
+  (items.length?items.map(function(x){return kidItem(x,k);}).join(''):empty('🎒',kidF==='all'?'Forms, notes, spirit days<br>and things to bring go here.':'Nothing here.'))+
+  addLine('kids','add for '+k+'…',k==='Holden'?'olive':'',' data-kid="'+k+'"')+(DB.kids.some(function(x){return (x.kid===k)&&x.done;})?'<div class="toolbar"><button class="link" data-kclear="'+k+'">Clear done</button></div>':'')+'</div></div>';}).join('')+'</div>';}
+
+/* ---------- click / input handling for the tabs ---------- */
+function tabClick(e,t){var el;
+ if((el=t.closest('[data-tog]'))){var p=pair(el.getAttribute('data-tog'));if(p.c==='todos'){var it=find('todos',p.id);if(it&&it.repeat&&!it.done){var nd=advance(it.due||iso(today()),it.repeat);if(nd<=iso(today()))nd=advance(iso(today()),it.repeat);save('todos',Object.assign({},it,{due:nd,done:false}));toast('Done! Next one '+nice(nd)+' 🔁',function(){save('todos',it);});setTimeout(refreshDay,0);return true;}}
+  setTimeout(refreshDay,0);return false;}
+ if((el=t.closest('[data-paid]'))){togglePaid(el.getAttribute('data-paid'));setTimeout(refreshDay,0);return true;}
+ if((el=t.closest('[data-star]'))){var s=find('todos',el.getAttribute('data-star'));if(s)save('todos',Object.assign({},s,{star:!s.star}));return true;}
+ if((el=t.closest('[data-f]'))){var f=el.getAttribute('data-f').split(':');if(f[0]==='todo'){todoF=f[1];localStorage.setItem('todoF',todoF);}else if(f[0]==='kid'){kidF=f[1];localStorage.setItem('kidF',kidF);}render();return true;}
+ if((el=t.closest('[data-xc]'))){e.stopPropagation();var x=el.getAttribute('data-xc').split(':');if(x[0]==='bill'){var b=find('bills',x[1]);if(b)editBill(b);}else if(x[0]==='kid'){var k=find('kids',x[1]);if(k)editKid(k);}else if(x[0]==='todo'){var td=find('todos',x[1]);if(td)editTodo(td);}return true;}
+ if((el=t.closest('[data-ev]'))){e.stopPropagation();var ev=find('events',el.getAttribute('data-ev'));closeSheets();if(ev)editEvent(ev);return true;}
+ if((el=t.closest('[data-edit]'))&&el.closest('.veil')){var q=pair(el.getAttribute('data-edit')),xx=find(q.c,q.id);closeSheets();if(xx)({todos:editTodo,bills:editBill,kids:editKid})[q.c](xx);return true;}
+ if((el=t.closest('[data-day]'))&&!t.closest('.month .chip,.wkview .chip')){dayDialog(el.getAttribute('data-day'));return true;}
+ if((el=t.closest('[data-dayev]'))){var ds=el.getAttribute('data-dayev');closeSheets();editEvent(null,ds);return true;}
+ if((el=t.closest('[data-daytodo]'))){var ds2=el.getAttribute('data-daytodo');closeSheets();editTodo({due:ds2});return true;}
+ if((el=t.closest('[data-skip]'))){var sk=el.getAttribute('data-skip').split(':'),se=find('events',sk[0]);if(se){var old=se;save('events',Object.assign({},se,{skip:(se.skip||[]).concat([sk[1]])}));toast('Skipped that day',function(){save('events',old);});}refreshDay();return true;}
+ if((el=t.closest('[data-cal]'))){var c=el.getAttribute('data-cal');if(c==='today'){calOff=0;render();}else if(c==='ov'){calOverlay=el.checked;localStorage.setItem('calOv',calOverlay?'1':'0');render();}return true;}
+ if((el=t.closest('[data-pickday]'))){pickIdea(el.getAttribute('data-pickday'));return true;}
+ if((el=t.closest('[data-pickidea]'))){var pi=el.getAttribute('data-pickidea').split(':'),id=(ideasDoc().items||[]).filter(function(z){return z.id===pi[1];})[0];closeSheets();if(id){setDinner(pi[0],id.text);toast(id.text+' planned 🍲'+(ingrList(id.ingr).length?' · tap 🛒 for groceries':''));}return true;}
+ if((el=t.closest('[data-ingr]'))){var ig=(ideasDoc().items||[]).filter(function(z){return z.id===el.getAttribute('data-ingr');})[0];if(ig)addIngredients(ig);return true;}
+ if(t.closest('[data-newidea]')){editIdea();return true;}
+ if((el=t.closest('[data-editidea]'))){var ei=(ideasDoc().items||[]).filter(function(z){return z.id===el.getAttribute('data-editidea');})[0];if(ei)editIdea(ei);return true;}
+ if((el=t.closest('[data-planidea]'))){var pl=(ideasDoc().items||[]).filter(function(z){return z.id===el.getAttribute('data-planidea');})[0];if(pl)planIdea(pl);return true;}
+ if((el=t.closest('[data-mealcopy]'))){var wk=parseD(el.getAttribute('data-mealcopy')),n=0,undo=[];for(var i=0;i<7;i++){var from=mealFor(iso(addDays(wk,i-7))),tds=iso(addDays(wk,i));if(from&&from.dinner&&!(mealFor(tds)||{}).dinner){setDinner(tds,from.dinner);undo.push(tds);n++;}}
+  toast(n?'Copied '+n+' dinner'+(n===1?'':'s'):'Nothing to copy (or this week’s already filled)',n?function(){undo.forEach(function(d){setDinner(d,'');});}:null);return true;}
+ if((el=t.closest('[data-mealclear]'))){var wk2=parseD(el.getAttribute('data-mealclear')),gone=[];for(var j=0;j<7;j++){var me=mealFor(iso(addDays(wk2,j)));if(me){gone.push(me);remove('meals',me.id,true);}}
+  if(gone.length)toast('Cleared the week',function(){gone.forEach(function(m){save('meals',m);});});return true;}
+ if((el=t.closest('[data-liup]'))){var a=el.getAttribute('data-liup').split(':'),L=find('lists',a[0]);if(L){L=JSON.parse(JSON.stringify(L));var ix=L.items.map(function(z){return z.id;}).indexOf(a[1]);if(ix>0){var tmp=L.items[ix-1];L.items[ix-1]=L.items[ix];L.items[ix]=tmp;save('lists',L);}}return true;}
+ if((el=t.closest('[data-liuncheck]'))){var L2=find('lists',el.getAttribute('data-liuncheck'));if(L2){var o2=L2;L2=JSON.parse(JSON.stringify(L2));L2.items.forEach(function(z){z.done=false;});save('lists',L2);toast('All unchecked',function(){save('lists',o2);});}return true;}
+ if((el=t.closest('[data-ldup]'))){var L3=find('lists',el.getAttribute('data-ldup'));if(L3){var c3=JSON.parse(JSON.stringify(L3));delete c3.id;delete c3.created;delete c3.order;c3.name=L3.name+' (copy)';c3.items=(c3.items||[]).map(function(z){return {id:uid(),text:z.text,done:false};});save('lists',c3);toast('Copied “'+L3.name+'”');}return true;}
+ if((el=t.closest('[data-lmove]'))){var lm=el.getAttribute('data-lmove').split(':'),ls=DB.lists.filter(function(l){return !l.kind;}).sort(function(a,b){return (a.order!=null?a.order:a.created||0)-(b.order!=null?b.order:b.created||0);}),ids=ls.map(function(l){return l.id;}),k2=ids.indexOf(lm[0]);
+  if(k2>0){ids.splice(k2,1);ids.splice(k2-1,0,lm[0]);ids.forEach(function(id,i){var l=find('lists',id);if(l.order!==i)save('lists',Object.assign({},l,{order:i}));});}return true;}
+ if((el=t.closest('[data-bc]'))){brainC=el.getAttribute('data-bc');render();return true;}
+ if((el=t.closest('[data-kclear]'))){var kk=el.getAttribute('data-kclear'),g2=DB.kids.filter(function(z){return z.kid===kk&&z.done;});g2.forEach(function(z){remove('kids',z.id,true);});toast('Cleared '+g2.length,function(){g2.forEach(function(z){save('kids',z);});});return true;}
+ return false;}
+document.addEventListener('input',function(e){if(e.target&&e.target.id==='bq'){brainQ=e.target.value;var w=document.getElementById('notesw');if(w)w.innerHTML=notesHtml();}});
+
 /* ---------------- events (delegated) ---------------- */
 function pair(s){var p=s.split(':');return {c:p[0],id:p[1],f:p[2]};}
-document.addEventListener('click',function(e){var t=e.target,el;
+document.addEventListener('click',function(e){var t=e.target,el;if(tabClick(e,t))return;
  if((el=t.closest('[data-tab]'))){go(el.getAttribute('data-tab'));return;}
  if(t.closest('[data-custom]')||t.id==='dashcz'){openCz();return;}
  if((el=t.closest('[data-wstyle]'))){styleDialog(el.getAttribute('data-wstyle'));return;}
