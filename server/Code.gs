@@ -39,7 +39,7 @@ var FS_PROJECT='kenzi-planner';
 var FS_BASE='https://firestore.googleapis.com/v1/projects/'+FS_PROJECT+'/databases/(default)/documents/';
 var PTZ='America/Indiana/Indianapolis';
 var COLS={groceries:1,meals:1,todos:1,events:1,reminders:1,brain:1,bills:1,lists:1,kids:1};
-var API_FNS={list:1,listAll:1,put:1,del:1,getLayout:1,saveLayout:1,getSettings:1,saveSettings:1,saveToken:1,testPush:1,addReminder:1,getReminders:1,deleteReminder:1,status:1,setupFirestore:1};
+var API_FNS={list:1,listAll:1,put:1,del:1,getLayout:1,saveLayout:1,getSettings:1,saveSettings:1,saveToken:1,testPush:1,addReminder:1,getReminders:1,deleteReminder:1,status:1,setupFirestore:1,putImagePart:1,putImage:1,getImage:1,listImages:1,delImage:1};
 function props_(){return PropertiesService.getScriptProperties();}
 function doPost(e){var out;try{var b=JSON.parse(e.postData.contents),key=props_().getProperty('PLANNER_KEY');
  if(!key||b.k!==key)throw 'locked';
@@ -100,3 +100,16 @@ function checkReminders(){var p=props_(),now=Date.now(),nx=Number(p.getProperty(
    docSet_('reminders/'+r.id,r);}
   if(!r.sent&&r.when<next)next=r.when;});
  p.setProperties({REM_NEXT:String(next),REM_CHK:String(now)});}
+// ===== Phase 2: "My photos" image storage in Firestore (free, no Firebase Storage) — 2026-11-16 =====
+// images/{id}: small meta doc {id,name,w,h,bytes,kind,thumb,parts,created}; imgparts/{id}_{n}: field "d" = a piece of the data URL (<= 900k chars each)
+function imgId_(id){id=String(id||'');if(!/^[A-Za-z0-9_-]{1,60}$/.test(id))throw 'bad id';return id;}
+function putImagePart(id,i,data){imgId_(id);i=Number(i);if(!(i>=0&&i<12&&i===Math.floor(i)))throw 'bad part';data=String(data||'');if(!data||data.length>900000)throw 'part too big';
+ fsReq_('patch',FS_BASE+'imgparts/'+id+'_'+i,{fields:{d:{stringValue:data}}});return true;}
+function putImage(meta){if(!meta||typeof meta!=='object')throw 'bad meta';var id=imgId_(meta.id);meta.parts=Number(meta.parts)||1;if(meta.parts<1||meta.parts>12)throw 'bad parts';
+ if(!meta.created)meta.created=Date.now();return docSet_('images/'+id,meta);}
+function getImage(id){imgId_(id);var m=docGet_('images/'+id);if(!m)return null;var s='';for(var i=0;i<(m.parts||1);i++){var d=fsReq_('get',FS_BASE+'imgparts/'+id+'_'+i);if(!d||!d.fields||!d.fields.d)throw 'image piece missing';s+=d.fields.d.stringValue;}
+ return {meta:m,data:s};}
+function listImages(){var out=[],tok='';do{var d=fsReq_('get',FS_BASE+'images?pageSize=300'+(tok?'&pageToken='+encodeURIComponent(tok):''));if(!d)break;
+ (d.documents||[]).forEach(function(x){try{var o=JSON.parse(x.fields.j.stringValue);o.id=x.name.split('/').pop();out.push(o);}catch(e){}});tok=d.nextPageToken||'';}while(tok);
+ return out.sort(function(a,b){return (b.created||0)-(a.created||0);});}
+function delImage(id){imgId_(id);var m=docGet_('images/'+id),n=m&&m.parts?m.parts:1;for(var i=0;i<n;i++)fsReq_('delete',FS_BASE+'imgparts/'+id+'_'+i);fsReq_('delete',FS_BASE+'images/'+id);return true;}
