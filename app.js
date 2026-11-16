@@ -1,7 +1,7 @@
 /* Kenzi's Planner v2 — Autumn Coffeehouse. Data lives in Firestore through the planner API. */
 (function(){
 'use strict';
-var VERSION='2.3.0';
+var VERSION='2.3.1';
 var PLANNER_API=window.PLANNER_API_OVERRIDE||'https://script.google.com/macros/s/AKfycby2K77ahxWPKILsKQNSUwa199QUB7uymfJbCbZUT9eRmwBT-8f6wZW-WVovfLPS7cZ4bQ/exec';
 var COLS=['groceries','meals','todos','events','reminders','brain','bills','lists','kids'];
 var PK=localStorage.getItem('pk')||'';
@@ -281,7 +281,10 @@ function pickWidget(){var veil=document.createElement('div');veil.className='vei
  veil.innerHTML='<div class="dlg"><div class="dh2"><span>Add a widget</span><button class="ib" data-x>✕</button></div><div class="db"><div class="picks">'+Object.keys(WDEF).map(function(k){var d=WDEF[k];return '<button class="pk" data-pk="'+k+'"><span class="em" style="background:'+d.bg+'">'+d.em+'</span><span>'+esc(d.name)+'<small>'+esc(d.desc)+'</small></span></button>';}).join('')+'</div></div><div class="df"><span class="sp"></span><button class="btn soft sm" data-x>Close</button></div></div>';
  document.body.appendChild(veil);veil.addEventListener('click',function(e){if(e.target===veil||e.target.closest('[data-x]'))return veil.remove();var p=e.target.closest('[data-pk]');if(!p)return;veil.remove();
   var t=p.getAttribute('data-pk'),w={id:'w-'+uid(),type:t,w:WDEF[t].w,h:WDEF[t].h};if(t==='sticker')w.sticker=STICKER_ORDER[Math.floor(Math.random()*6)];LAYOUT.widgets.push(w);var el;
-  if(grid){el=widgetEl(w);$('#gs').appendChild(el);grid.makeWidget(el);var n=el.gridstackNode;if(n){w.x=n.x;w.y=n.y;}}else{w.y=999;renderDash();el=document.querySelector('[gs-id="'+w.id+'"]');}if(el)fillImgs(el);saveLayout();setTimeout(function(){el&&el.scrollIntoView({behavior:'smooth',block:'center'});},100);toast(WDEF[t].name+' added ✨');
+  LAYOUT.mobile=[w.id].concat(mobileOrder().filter(function(id){return id!==w.id;}));
+  if(grid&&grid.getColumn()===12){w.x=0;w.y=0;el=widgetEl(w);$('#gs').appendChild(el);grid.makeWidget(el);grid.engine.nodes.forEach(function(n){var x=wById(n.id);if(x){x.x=n.x;x.y=n.y;x.w=n.w;x.h=n.h;}});}
+  else{LAYOUT.widgets.forEach(function(x){if(x!==w&&x.y!=null)x.y+=w.h;});w.y=0;killGrid();renderDash();el=document.querySelector('[gs-id="'+w.id+'"]');}
+  if(el){fillImgs(el);el.classList.add('wnew');setTimeout(function(){el.classList.remove('wnew');},2600);}saveLayout();setTimeout(function(){el&&el.scrollIntoView({behavior:'smooth',block:'center'});},120);toast(WDEF[t].name+' added at the top ✨');
   if(t==='photo')setTimeout(function(){photoDialog(w.id);},250);if(t==='quote')setTimeout(function(){quoteDialog(w.id);},250);});}
 function removeWidget(id){var w=LAYOUT.widgets.filter(function(x){return x.id===id;})[0];if(!w)return;var el=document.querySelector('.grid-stack-item[gs-id="'+id+'"]');
  LAYOUT.widgets=LAYOUT.widgets.filter(function(x){return x.id!==id;});if(el){if(grid)grid.removeWidget(el);else el.remove();}saveLayout();

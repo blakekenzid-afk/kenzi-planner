@@ -764,3 +764,6 @@ body.darkth .ideab,body.darkth .fchips button{background:rgba(255,255,255,.06);c
  .bfilter .cozy.sm{max-width:none}
 }
 .month .chip.ghost{display:block;max-width:100%;box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;padding:1px 4px}
+
+.wnew>.grid-stack-item-content>.card,.stack-item.wnew>.card{animation:wnew 2.4s ease}
+@keyframes wnew{0%,40%{box-shadow:0 0 0 4px var(--mustard,#e6b84a)}100%{box-shadow:none}}
