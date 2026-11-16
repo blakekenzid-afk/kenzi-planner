@@ -1,7 +1,7 @@
 /* Kenzi's Planner v2 — Autumn Coffeehouse. Data lives in Firestore through the planner API. */
 (function(){
 'use strict';
-var VERSION='2.3.1';
+var VERSION='2.3.2';
 var PLANNER_API=window.PLANNER_API_OVERRIDE||'https://script.google.com/macros/s/AKfycby2K77ahxWPKILsKQNSUwa199QUB7uymfJbCbZUT9eRmwBT-8f6wZW-WVovfLPS7cZ4bQ/exec';
 var COLS=['groceries','meals','todos','events','reminders','brain','bills','lists','kids'];
 var PK=localStorage.getItem('pk')||'';
@@ -270,7 +270,7 @@ function renderDash(){var v=$('#view');stackMode=isPhone();
   $('#arr').onclick=function(){arranging=!arranging;renderDash();};grid=null;fillImgs(gsEl);return;}
  LAYOUT.widgets.forEach(function(w){if(WDEF[w.type])gsEl.appendChild(widgetEl(w));});fillImgs(gsEl);
  grid=GridStack.init({column:12,cellHeight:78,margin:0,handle:'.wh.drag',float:false,animate:true,resizable:{handles:'se'},draggable:{cancel:'button,input,.ib'},
-  columnOpts:{breakpoints:[{w:560,c:1},{w:1000,c:6}]}},gsEl);
+  columnOpts:{layout:'list',breakpoints:[{w:560,c:1},{w:1000,c:6}]}},gsEl);
  grid.on('change',function(){if(grid.getColumn()!==12)return;grid.engine.nodes.forEach(function(n){var w=LAYOUT.widgets.filter(function(x){return x.id===n.id;})[0];if(w){w.x=n.x;w.y=n.y;w.w=n.w;w.h=n.h;}});saveLayout();});}
 function moveMobile(id,dir){var m=mobileOrder(),i=m.indexOf(id),j=i+dir;if(i<0||j<0||j>=m.length)return;m[i]=m[j];m[j]=id;LAYOUT.mobile=m;saveLayout();renderDash();
  var el=document.querySelector('[gs-id="'+id+'"]');if(el)el.scrollIntoView({block:'center'});}
