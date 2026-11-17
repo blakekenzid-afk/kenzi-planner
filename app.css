@@ -813,3 +813,6 @@ body.darkth .ideab,body.darkth .fchips button{background:rgba(255,255,255,.06);c
  .wk .chip{display:inline-block;-webkit-line-clamp:unset;max-width:100%;white-space:nowrap;text-overflow:ellipsis;font-size:12px;text-align:left}
  .wk .chip .tm{display:inline;margin-right:4px}
 }
+/* narrow cards: keep to-do / list text readable instead of one letter per line */
+.row{flex-wrap:wrap;row-gap:2px}
+.row .tx{flex:1 1 6em;min-width:6em}

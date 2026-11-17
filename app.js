@@ -1,7 +1,7 @@
 /* Kenzi's Planner v2 — Autumn Coffeehouse. Data lives in Firestore through the planner API. */
 (function(){
 'use strict';
-var VERSION='2.4.0';
+var VERSION='2.4.1';
 var PLANNER_API=window.PLANNER_API_OVERRIDE||'https://script.google.com/macros/s/AKfycby2K77ahxWPKILsKQNSUwa199QUB7uymfJbCbZUT9eRmwBT-8f6wZW-WVovfLPS7cZ4bQ/exec';
 var COLS=['groceries','meals','todos','events','reminders','brain','bills','lists','kids'];
 var PK=localStorage.getItem('pk')||'';
