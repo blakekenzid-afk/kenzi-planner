@@ -1,7 +1,7 @@
 /* Kenzi's Planner v2 — Autumn Coffeehouse. Data lives in Firestore through the planner API. */
 (function(){
 'use strict';
-var VERSION='2.3.3';
+var VERSION='2.4.0';
 var PLANNER_API=window.PLANNER_API_OVERRIDE||'https://script.google.com/macros/s/AKfycby2K77ahxWPKILsKQNSUwa199QUB7uymfJbCbZUT9eRmwBT-8f6wZW-WVovfLPS7cZ4bQ/exec';
 var COLS=['groceries','meals','todos','events','reminders','brain','bills','lists','kids'];
 var PK=localStorage.getItem('pk')||'';
@@ -21,7 +21,7 @@ var DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],DNL=['Sunday','Monday','Tuesd
 var MN=['January','February','March','April','May','June','July','August','September','October','November','December'];
 function nice(s){var d=parseD(s);if(!d)return '';var t=today(),diff=Math.round((d-t)/864e5);if(diff===0)return 'Today';if(diff===1)return 'Tomorrow';if(diff===-1)return 'Yesterday';
  return DN[d.getDay()]+' '+MN[d.getMonth()].slice(0,3)+' '+d.getDate();}
-function fmtTime(t){if(!t)return '';var p=t.split(':'),h=+p[0],m=p[1];return (h%12||12)+(m!=='00'?':'+m:'')+(h<12?'am':'pm');}
+function fmtTime(t){t=normT(t)||t;if(!t)return '';var p=t.split(':'),h=+p[0],m=p[1];return (h%12||12)+(m!=='00'?':'+m:'')+(h<12?'am':'pm');}
 function money(v){var n=parseFloat(String(v).replace(/[^0-9.\-]/g,''));if(isNaN(n))return '';var s=n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});return '$'+s.replace(/\.00$/,'');}
 function num(v){var n=parseFloat(String(v).replace(/[^0-9.\-]/g,''));return isNaN(n)?0:n;}
 function monthKey(d){d=d||today();return d.getFullYear()+'-'+pad(d.getMonth()+1);}
@@ -49,7 +49,7 @@ function flush(){if(flushing||!PK)return;if(!OUT.length){setSync('ok');return;}f
   .catch(function(e){flushing=false;setSync('off');clearTimeout(retryT);retryT=setTimeout(flush,15000);if(e==='locked')return;console.warn('save failed',e);});}
 window.addEventListener('online',flush);
 var loaded=false;
-function loadAll(){setSync('busy');return api('listAll').then(function(r){COLS.forEach(function(c){DB[c]=r[c]||[];});OUT.forEach(applyOp);persist();loaded=true;rerender();remSyncAll();setSync(OUT.length?'busy':'ok');flush();})
+function loadAll(){setSync('busy');return api('listAll').then(function(r){COLS.forEach(function(c){DB[c]=r[c]||[];});OUT.forEach(applyOp);persist();loaded=true;rerender();remSyncAll();gRemSyncAll();setSync(OUT.length?'busy':'ok');flush();})
  .catch(function(e){setSync('off');if(e!=='locked')toast('Showing your saved copy – I’ll sync when I can');});}
 
 /* ---------------- toast ---------------- */
@@ -166,7 +166,7 @@ function todoPage(){var t=todosSorted(),done=t.filter(function(x){return x.done;
  (done?'<div class="toolbar"><span class="pill olive">'+done+' done 🎉</span><button class="link" data-clear="todos">Clear finished</button></div>':'')+'</div></div>';
  return '<div class="cols c2">'+left+'<div class="card"><div class="wh mustard"><span class="t">Calendar</span><button class="ib" data-new="event" title="New event">+</button></div><div class="bd">'+calendar()+'</div></div></div>';}
 function calendar(){var t=today(),td=iso(t),h='';
- if(calMode==='month'){var base=new Date(t.getFullYear(),t.getMonth()+calOff,1),start=monday(base);
+ if(calMode==='month'){var base=new Date(t.getFullYear(),t.getMonth()+calOff,1),start=monday(base);gcEnsure(iso(start),iso(addDays(start,41)));
   h+='<div class="calhead"><button class="round" data-co="-1" aria-label="Previous">‹</button><b>'+MN[base.getMonth()]+' '+base.getFullYear()+'</b><button class="round" data-co="1" aria-label="Next">›</button>'+segHtml()+'</div><div class="month">';
   ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(function(d){h+='<div class="wd">'+d+'</div>';});
   for(var i=0;i<42;i++){var d=addDays(start,i),ds=iso(d),ev=eventsOn(ds);if(i===35&&d.getMonth()!==base.getMonth())break;
@@ -795,36 +795,36 @@ function todoPage(){var t=DB.todos,done=t.filter(function(x){return x.done;}).le
 /* ---------- calendar ---------- */
 var calOverlay=localStorage.getItem('calOv')!=='0';
 if(!localStorage.getItem('calMode')&&window.innerWidth<=760)calMode='list';
-function occursOn(e,ds){if(!e.date)return false;if(e.date===ds)return true;var r=e.repeat;if(!r||ds<e.date)return false;if(e.until&&ds>e.until)return false;
+function occursOn(e,ds){if(!e.date)return false;if(e.date===ds||(e.endDate&&!e.repeat&&ds>e.date&&ds<=e.endDate))return true;var r=e.repeat;if(!r||ds<e.date)return false;if(e.until&&ds>e.until)return false;
  var a=parseD(e.date),b=parseD(ds),diff=daysBetween(a,b);
  if(r==='daily')return true;if(r==='weekly')return diff%7===0;if(r==='biweekly')return diff%14===0;
  if(r==='monthly'){var last=new Date(b.getFullYear(),b.getMonth()+1,0).getDate();return b.getDate()===Math.min(a.getDate(),last);}
  if(r==='yearly')return a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();return false;}
-function eventsOn(ds){return DB.events.filter(function(e){return occursOn(e,ds)&&!(e.skip&&e.skip.indexOf(ds)>=0);}).sort(function(a,b){return (a.time||'99')<(b.time||'99')?-1:1;});}
+function plannerEventsOn(ds){return DB.events.filter(function(e){return occursOn(e,ds)&&!(e.skip&&e.skip.indexOf(ds)>=0);}).sort(function(a,b){return (a.time||'99')<(b.time||'99')?-1:1;});}
 function extrasOn(ds){var out=[];if(!calOverlay)return out;
  DB.bills.forEach(function(b){var n=billNext(b);if(n&&iso(n)===ds&&!billPaid(b))out.push({k:'bill',id:b.id,t:'💌 '+b.name+(b.amount?' '+money(b.amount):'')});});
  DB.kids.forEach(function(k){if(k.date===ds&&!k.done)out.push({k:'kid',id:k.id,t:(KEMO[k.type]||'🎒')+' '+(k.kid==='Both'?'':k.kid+': ')+k.title});});
  DB.todos.forEach(function(t){if(t.due===ds&&!t.done&&t.star)out.push({k:'todo',id:t.id,t:'⭐ '+t.text});});return out;}
 function xchip(x){return '<span class="chip ghost '+x.k+'" data-xc="'+x.k+':'+x.id+'" title="'+esc(x.t)+'">'+esc(x.t)+'</span>';}
-function chip(e,short){return '<span class="chip '+esc(e.color||'oat')+'" data-ev="'+e.id+'" title="'+esc(e.title)+'">'+(e.time&&!short?'<span class="tm">'+fmtTime(e.time)+'</span>':'')+(e.repeat&&!short?'🔁 ':'')+(e.remind&&!short?'🔔 ':'')+esc(e.title)+'</span>';}
+function chipBase(e,short){return '<span class="chip '+esc(e.color||'oat')+'" data-ev="'+e.id+'" title="'+esc(e.title)+'">'+(e.time&&!short?'<span class="tm">'+fmtTime(e.time)+'</span>':'')+(e.repeat&&!short?'🔁 ':'')+(e.remind&&!short?'🔔 ':'')+esc(e.title)+'</span>';}
 function segHtml(){return '<span class="seg"><button data-cm="month" class="'+(calMode==='month'?'on':'')+'">Month</button><button data-cm="week" class="'+(calMode==='week'?'on':'')+'">Week</button><button data-cm="list" class="'+(calMode==='list'?'on':'')+'">List</button></span>';}
 function calendar(){var t=today(),td=iso(t),h='';
- var tools='<div class="caltools"><button class="link" data-cal="today">Today</button><label class="tgl"><input type="checkbox" data-cal="ov"'+(calOverlay?' checked':'')+'> show bills &amp; school</label></div>';
- if(calMode==='month'){var base=new Date(t.getFullYear(),t.getMonth()+calOff,1),start=monday(base);
+ var tools='<div class="caltools"><button class="link" data-cal="today">Today</button>'+gcTools()+'<label class="tgl"><input type="checkbox" data-cal="ov"'+(calOverlay?' checked':'')+'> show bills &amp; school</label></div>';
+ if(calMode==='month'){var base=new Date(t.getFullYear(),t.getMonth()+calOff,1),start=monday(base);gcEnsure(iso(start),iso(addDays(start,41)));
   h+='<div class="calhead"><button class="round" data-co="-1" aria-label="Previous">‹</button><b>'+MN[base.getMonth()]+' '+base.getFullYear()+'</b><button class="round" data-co="1" aria-label="Next">›</button>'+segHtml()+'</div>'+tools+'<div class="month">';
   ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(function(d){h+='<div class="wd">'+d+'</div>';});
   for(var i=0;i<42;i++){var d=addDays(start,i),ds=iso(d),ev=eventsOn(ds),xs=extrasOn(ds),all=ev.length+xs.length;if(i===35&&d.getMonth()!==base.getMonth())break;
    h+='<div class="d'+(d.getMonth()!==base.getMonth()?' o':'')+(ds===td?' today':'')+'" data-day="'+ds+'"><span class="n">'+d.getDate()+'</span>'+ev.slice(0,3).map(function(e){return chip(e,true);}).join('')+xs.slice(0,Math.max(0,3-ev.length)).map(xchip).join('')+(all>3?'<span class="more">+'+(all-3)+' more</span>':'')+(xs.length&&ev.length>=3?'<i class="dotx"></i>':'')+'</div>';}
   h+='</div>';}
- else if(calMode==='week'){var m=addDays(monday(t),calOff*7),e6=addDays(m,6);
+ else if(calMode==='week'){var m=addDays(monday(t),calOff*7),e6=addDays(m,6);gcEnsure(iso(m),iso(e6));
   h+='<div class="calhead"><button class="round" data-co="-1" aria-label="Previous">‹</button><b>'+MN[m.getMonth()].slice(0,3)+' '+m.getDate()+' – '+MN[e6.getMonth()].slice(0,3)+' '+e6.getDate()+'</b><button class="round" data-co="1" aria-label="Next">›</button>'+segHtml()+'</div>'+tools+'<div class="wkview">';
   for(var j=0;j<7;j++){var dd=addDays(m,j),s=iso(dd);h+='<div class="d'+(s===td?' today':'')+'" data-day="'+s+'"><div class="dh">'+DN[dd.getDay()]+'<small>'+dd.getDate()+'</small></div>'+eventsOn(s).map(function(e){return chip(e);}).join('')+extrasOn(s).map(xchip).join('')+'</div>';}
   h+='</div>';}
- else{var st=addDays(t,calOff*30),any=false;
+ else{var st=addDays(t,calOff*30),any=false;gcEnsure(iso(st),iso(addDays(st,30)));
   h+='<div class="calhead"><button class="round" data-co="-1" aria-label="Earlier">‹</button><b>'+(calOff===0?'Next 30 days':MN[st.getMonth()].slice(0,3)+' '+st.getDate()+' onward')+'</b><button class="round" data-co="1" aria-label="Later">›</button>'+segHtml()+'</div>'+tools+'<div class="agenda">';
   for(var k=0;k<30;k++){var ad=addDays(st,k),as=iso(ad),evs=eventsOn(as),xx=extrasOn(as);if(!evs.length&&!xx.length)continue;any=true;
    h+='<div class="aday'+(as===td?' today':'')+'"><div class="adate" data-day="'+as+'"><b>'+ad.getDate()+'</b><span>'+DN[ad.getDay()]+'</span></div><div class="aitems">'+
-   evs.map(function(e){return '<div class="aev '+esc(e.color||'oat')+'" data-ev="'+e.id+'"><span class="atm">'+(e.time?fmtTime(e.time)+(e.end?'–'+fmtTime(e.end):''):'all day')+'</span>'+esc(e.title)+(e.repeat?' <small>🔁</small>':'')+'</div>';}).join('')+
+   evs.map(function(e){return '<div class="aev '+esc(e.color||'oat')+'" data-ev="'+e.id+'"><span class="atm">'+(e.time?fmtTime(e.time)+(e.end?'–'+fmtTime(e.end):''):'all day')+'</span>'+esc(e.title)+(e.repeat?' <small>🔁</small>':'')+gBadge(e)+'</div>';}).join('')+
    xx.map(function(x){return '<div class="aev ghost" data-xc="'+x.k+':'+x.id+'">'+esc(x.t)+'</div>';}).join('')+'</div></div>';}
   if(!any)h+=empty('🗓️','Nothing planned yet.<br>Tap + to add an event.');h+='</div>';}
  return h+'<div class="hand" style="margin-top:8px">tap a day to see everything & add an event</div>';}
@@ -836,7 +836,7 @@ function editEvent(e,date){e=e||{date:date||iso(today()),color:'mustard'};form({
 function dayDialog(ds){var d=parseD(ds),ev=eventsOn(ds),me=mealFor(ds),td=DB.todos.filter(function(t){return t.due===ds;}),
  bl=DB.bills.filter(function(b){var n=billNext(b);return n&&iso(n)===ds;}),kd=DB.kids.filter(function(k){return k.date===ds;}),b='';
  function sec(title,inner){return inner?'<div class="dsec"><div class="ghead">'+title+'</div>'+inner+'</div>':'';}
- b+=sec('📅 Events',ev.map(function(e){return '<div class="row"><span class="dotc '+esc(e.color||'oat')+'"></span><div class="tx" data-ev="'+e.id+'">'+(e.time?'<b>'+fmtTime(e.time)+(e.end?'–'+fmtTime(e.end):'')+'</b> ':'')+esc(e.title)+(e.repeat?' <span class="tiny">🔁 '+esc(REPNAME[e.repeat]||'')+'</span>':'')+(e.note?'<div class="meta" style="white-space:normal">'+esc(e.note)+'</div>':'')+'</div>'+(e.repeat&&e.date!==ds?'<button class="link" data-skip="'+e.id+':'+ds+'">skip this day</button>':'')+'</div>';}).join(''));
+ b+=sec('📅 Events',ev.map(function(e){return '<div class="row"><span class="dotc '+esc(e.color||'oat')+'"></span><div class="tx" data-ev="'+e.id+'">'+(e.time?'<b>'+fmtTime(e.time)+(e.end?'–'+fmtTime(e.end):'')+'</b> ':'')+esc(e.title)+gBadge(e)+(e.repeat?' <span class="tiny">🔁 '+esc(REPNAME[e.repeat]||'')+'</span>':'')+(e.note?'<div class="meta" style="white-space:normal">'+esc(e.note)+'</div>':'')+'</div>'+(e.repeat&&e.date!==ds?'<button class="link" data-skip="'+e.id+':'+ds+'">skip this day</button>':'')+'</div>';}).join(''));
  b+=sec('✅ To-dos due',td.map(todoRow).join(''));
  b+=sec('💌 Bills due',bl.map(function(x){return '<div class="row"><div class="tx" data-edit="bills:'+x.id+'">'+esc(x.name)+' <b>'+esc(money(x.amount))+'</b></div><button class="paid'+(billPaid(x)?' on':'')+'" data-paid="'+x.id+'">'+(billPaid(x)?'✓ Paid':'Mark paid')+'</button></div>';}).join(''));
  b+=sec('🎒 Kids & school',kd.map(function(k){return '<div class="row'+(k.done?' done':'')+'"><input type="checkbox" class="ck" data-tog="kids:'+k.id+':done"'+(k.done?' checked':'')+'><div class="tx" data-edit="kids:'+k.id+'">'+(KEMO[k.type]||'')+' '+esc(k.kid==='Both'?'Both':k.kid)+': '+esc(k.title)+'</div></div>';}).join(''));
@@ -1106,27 +1106,164 @@ function remSync(c,it,del){if(!REMCOLS[c]||!it)return;var key=remKey(c,it.id),wa
 function remHook(c,item,del){if(remSyncing||!REMCOLS[c]||!loaded)return;try{remSync(c,item,del);}catch(e){console.warn('rem',e);}}
 /* re-arm repeating items and tidy old ones each time the planner loads */
 function remSyncAll(){if(!loaded)return;try{Object.keys(REMCOLS).forEach(function(c){DB[c].forEach(function(it){if(it.remind)remSync(c,it,false);});});
-  DB.reminders.filter(function(r){if(!r.ref)return false;var p=r.ref.split(':'),it=REMCOLS[p[0]]?find(p[0],p[1]):null;return !it||!it.remind;}).forEach(function(r){remSyncing=true;try{remove('reminders',r.id,true);}finally{remSyncing=false;}});
+  DB.reminders.filter(function(r){if(!r.ref||r.ref.indexOf('gcal:')===0)return false;var p=r.ref.split(':'),it=REMCOLS[p[0]]?find(p[0],p[1]):null;return !it||!it.remind;}).forEach(function(r){remSyncing=true;try{remove('reminders',r.id,true);}finally{remSyncing=false;}});
  }catch(e){console.warn('remAll',e);}}
 function pushIsOn(){return ('Notification' in window)&&Notification.permission==='granted'&&!!localStorage.getItem('pushOn');}
 function remNudge(v){if(!v||!v.remind)return;setTimeout(function(){if(pushIsOn())toast('🔔 I’ll remind you · '+(REMNAME[v.remind]||'').toLowerCase());else toast('Reminder saved. Tap the 🔔 up top to turn on notifications.');},350);}
 /* bell panel list: show where each reminder came from */
-var REMSRC={todos:'To-do',events:'Calendar',bills:'Bill',kids:'Kids & School'};
+var REMSRC={todos:'To-do',events:'Calendar',bills:'Bill',kids:'Kids & School',gcal:'Google Calendar'};
 function remHtml(small){var a=remList();if(!a.length)return small?empty('🔔','No reminders yet.<br>Tap 🔔 on any to-do, event or bill.'):'<div class="nstat">Nothing yet. Add one above, or pick “Remind me” when you add a to-do, event, bill or school item.</div>';
  return a.slice(0,small?6:50).map(function(r){var src=r.ref?REMSRC[r.ref.split(':')[0]]:'';
   return '<div class="rem"><div style="flex:1;min-width:0"><div style="font-weight:800;overflow-wrap:anywhere">'+esc(r.text)+'</div><div class="w">'+fmtW(r.when)+(r.repeat?' · '+(r.repeat==='daily'?'every day':'every week'):'')+(src?' · from '+src:'')+'</div></div><button class="x" data-rm="reminders:'+r.id+'" aria-label="Delete">✕</button></div>';}).join('');}
 /* deleting a linked reminder in the bell panel also turns off "remind me" on its item */
 function remClick(e,t){var el=t.closest('[data-rm^="reminders:"]');if(!el)return false;var id=el.getAttribute('data-rm').split(':')[1],r=find('reminders',id);
- if(!r||!r.ref)return false;e.stopPropagation();var p=r.ref.split(':'),it=find(p[0],p[1]);
+ if(!r||!r.ref)return false;e.stopPropagation();if(r.ref.indexOf('gcal:')===0){gRemOff(r);drawRems();return true;}var p=r.ref.split(':'),it=find(p[0],p[1]);
  if(it){var old=JSON.parse(JSON.stringify(it));save(p[0],Object.assign({},it,{remind:''}));toast('Reminder off',function(){save(p[0],old);drawRems();});}else remove('reminders',id,true);
  drawRems();return true;}
 function editKid(k,kid){k=k||{kid:kid||'Weston',type:'note'};form({title:k.id?'Edit':'Add for '+(k.kid==='Both'?'both boys':k.kid),color:'var(--caramel)',required:'title',values:k,
  fields:[{k:'title',label:'What is it?',ph:'Field trip form'},{k:'kid',label:'Who',t:'chips',opts:[['Weston','Weston'],['Holden','Holden'],['Both','Both']]},{k:'type',label:'Kind',t:'chips',opts:KTYPES},{k:'date',label:'Date (optional)',t:'date'},{k:'remind',label:'🔔 Remind me (needs a date)',t:'select',opts:REM_DAY},{k:'note',label:'Notes',t:'area'}],
  onSave:function(v){var was=k.remind||'';if(v.remind&&!v.date)v.date=iso(today());save('kids',Object.assign({},k,v,{done:!!k.done}));if(v.remind!==was)remNudge(v);},onDelete:k.id?function(){remove('kids',k.id);}:null});}
 
+/* ================= Phase 5: Google Calendar two-way sync (v2.4.0) ================= */
+var GCAL_DEF={personal:{name:'Personal',color:'#9fe1e7'},work:{name:'Work',color:'#fa573c'}},GCAL_KEYS=['personal','work'];
+var GC=null;try{GC=JSON.parse(localStorage.getItem('gcal1')||'null');}catch(e){GC=null;}
+if(!GC||!GC.ev)GC={ev:[],cals:{},from:'',to:'',at:0};
+var GIDX=null,GOCC=[],gcBusy=false,gcErr='',gcLoadedNow=false,gcPend={},gcXBusy='';
+var gcHide={};try{gcHide=JSON.parse(localStorage.getItem('gcHide')||'{}')||{};}catch(e){gcHide={};}
+function normT(t){var m=String(t||'').trim().match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])?$/);if(!m)return '';var h=+m[1];if(m[3]){var pm=/p/i.test(m[3]);if(h===12)h=0;if(pm)h+=12;}return h>23?'':pad(h)+':'+m[2];}
+function gcName(k){return GCAL_DEF[k]?GCAL_DEF[k].name:k;}
+function gcColor(k){var c=GC.cals&&GC.cals[k];return (c&&c.color)||(GCAL_DEF[k]||{}).color||'#C9AE8E';}
+function gcOk(k){var c=GC.cals&&GC.cals[k];return !c||c.ok!==false;}
+function gcCanWrite(k){var c=GC.cals&&GC.cals[k];return !c||!c.role||c.role==='owner'||c.role==='writer';}
+function gcKey(o){return o.k+'|'+o.id;}
+function gcSave(){try{localStorage.setItem('gcal1',JSON.stringify(GC));}catch(e){}}
+function gcRange(){var t=today();return [iso(addDays(t,-62)),iso(addDays(t,420))];}
+function gcAll(){var a=(GC.ev||[]).slice();if(GC.x&&GC.x.ev)a=a.concat(GC.x.ev);return a;}
+function gcFind(key){var a=gcAll();for(var i=0;i<a.length;i++)if(gcKey(a[i])===key)return a[i];return null;}
+/* calendar colors as css classes */
+function gcStyle(){var css='';GCAL_KEYS.forEach(function(k){var c=gcColor(k),bg=mix(c,'#FFFFFF',.55),ink=onColor(bg),st=lum(c)>.5?mix(c,'#2A1A10',.28):c,abg=mix(c,'#FFFFFF',.7);
+  css+='.chip.gc-'+k+'{background:'+bg+';color:'+ink+';box-shadow:inset 3px 0 0 '+st+',0 2px 0 rgba(110,72,40,.15)}'+
+  '.aev.gc-'+k+'{background:'+abg+';color:'+onColor(abg)+';box-shadow:inset 4px 0 0 '+st+'}'+
+  '.dotc.gc-'+k+',.gdot.gc-'+k+'{background:'+c+';box-shadow:0 0 0 1.5px '+st+'}'+
+  '.gbadge.gc-'+k+',.gpill.gc-'+k+' i{background:'+c+';color:'+onColor(c)+'}';});
+ var el=document.getElementById('gcstyle');if(!el){el=document.createElement('style');el.id='gcstyle';document.head.appendChild(el);}if(el.textContent!==css)el.textContent=css;}
+/* ---- loading ---- */
+function gcLoad(){if(gcBusy||!PK)return Promise.resolve();gcBusy=true;var r=gcRange();
+ return api('gcalList',[r[0],r[1]]).then(function(d){if(!d||!d.ev)throw 'no data';var keepX=GC.x;
+   GC={ev:d.ev,cals:d.cals||{},from:d.from,to:d.to,at:Date.now(),x:keepX};gcLoadedNow=true;
+   var bad=GCAL_KEYS.filter(function(k){return d.cals&&d.cals[k]&&d.cals[k].ok===false;});gcErr=bad.length?bad.map(gcName).join(' & ')+' calendar didn’t load':'';
+   gcSave();GIDX=null;gcStyle();rerender();refreshDay();gRemSyncAll();})
+  .catch(function(e){gcErr=String(e)==='locked'?'':'Couldn’t reach Google just now, showing your saved copy';if(cur==='todo')rerender();})
+  .then(function(){gcBusy=false;});}
+/* a month outside the cached window: fetch just that stretch */
+function gcEnsure(a,b){if(!GC.from||(a>=GC.from&&b<=GC.to))return;if(GC.x&&a>=GC.x.from&&b<=GC.x.to)return;var key=a+b;if(gcXBusy===key)return;gcXBusy=key;
+ api('gcalList',[a,b]).then(function(d){GC.x={ev:d.ev||[],from:d.from,to:d.to};gcSave();GIDX=null;rerender();}).catch(function(){}).then(function(){gcXBusy='';});}
+function gcStale(){return Date.now()-(GC.at||0)>120000;}
+/* ---- index by day ---- */
+function nTitle(s){return String(s||'').toLowerCase().replace(/^\s*(work|school|personal)\s*[:\-–]\s*/,'').replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();}
+var STOPW={the:1,a:1,an:1,and:1,of:1,'for':1,to:1,at:1,'in':1,on:1,day:0,after:1,with:1,no:1};
+function tWords(s){return nTitle(s).split(' ').filter(function(w){return w.length>2&&!STOPW[w];});}
+function tSim(a,b){var x=tWords(a),y=tWords(b);if(!x.length||!y.length)return 0;var n=0;x.forEach(function(w){if(y.indexOf(w)>=0)n++;});return n/Math.min(x.length,y.length);}
+function gcIndex(){if(GIDX)return GIDX;GIDX={};GOCC=[];var groups={},order=[];
+ gcAll().forEach(function(o){if(gcHide[o.k]||gcPend[gcKey(o)]==='del')return;var sig=nTitle(o.t)+'|'+o.d+'|'+(o.tm||'')+'|'+o.ed;
+  if(!groups[sig]){groups[sig]=[];order.push(sig);}if(!groups[sig].some(function(z){return gcKey(z)===gcKey(o);}))groups[sig].push(o);});
+ var P=gcPrefs();
+ order.forEach(function(sig){var g=groups[sig],o=g.filter(function(z){return !z.ro;})[0]||g[0];
+  var n=Math.min(Math.max(daysBetween(parseD(o.d),parseD(o.ed||o.d))+1,1),62),key=gcKey(o);
+  for(var i=0;i<n;i++){var ds=iso(addDays(parseD(o.d),i)),ix=GOCC.length;
+   var occ={id:'g~'+ix,g:o,gk:key,cal:o.k,title:o.t,date:ds,time:i===0?(o.tm||''):'',end:i===n-1&&i===0?(o.et||''):'',allDay:!!o.ad||i>0,span:n>1?{i:i+1,n:n}:null,
+    color:'gc gc-'+o.k,note:o.n||'',remind:(P.remind||{})[key]||'',dupes:g.length-1};
+   GOCC.push(occ);(GIDX[ds]=GIDX[ds]||[]).push(occ);}});
+ return GIDX;}
+function gcIsCopy(e,g){var et=normT(e.time),work=/^\s*work\s*:/i.test(e.title||'');
+ return g.some(function(o){var s=tSim(e.title,o.title),same=et&&o.time&&et===o.time;return s>=.6||(work&&o.cal==='work'&&(same||s>=.34));});}
+function evSort(a,b){var ta=normT(a.time),tb=normT(b.time);if(!ta&&tb)return -1;if(ta&&!tb)return 1;return ta<tb?-1:ta>tb?1:0;}
+function eventsOn(ds){var p=plannerEventsOn(ds),g=gcIndex()[ds]||[];if(g.length)p=p.filter(function(e){return !gcIsCopy(e,g);});return p.concat(g).sort(evSort);}
+function hiddenCopies(){var n=[];DB.events.forEach(function(e){if(!e.date||e.repeat)return;var g=gcIndex()[e.date]||[];if(g.length&&gcIsCopy(e,g))n.push(e);});return n;}
+/* ---- rendering helpers ---- */
+function chip(e,short){if(!e.g)return chipBase(e,short);var o=e.g,t=(e.span&&e.span.i>1?'↳ ':'')+e.title;
+ return '<span class="chip '+esc(e.color)+'" data-ev="'+e.id+'" title="'+esc(e.title+' · '+gcName(e.cal)+' calendar'+(e.span?' · day '+e.span.i+' of '+e.span.n:''))+'">'+(e.time&&!short?'<span class="tm">'+fmtTime(e.time)+'</span>':'')+(e.remind&&!short?'🔔 ':'')+esc(t)+'</span>';}
+function gBadge(e){return e&&e.g?' <span class="gbadge gc-'+e.cal+'">'+esc(gcName(e.cal))+'</span>'+(e.span?' <small class="tiny">day '+e.span.i+' of '+e.span.n+'</small>':'')+(e.remind?' <small>🔔</small>':''):'';}
+function gcWhen(o){var s=nice(o.d)+(o.tm?' · '+fmtTime(o.tm)+(o.et?'–'+fmtTime(o.et):''):'');if(o.ed&&o.ed!==o.d)s=nice(o.d)+' – '+nice(o.ed)+(o.tm?' · '+fmtTime(o.tm):'');else if(!o.tm)s+=' · all day';return s;}
+function gcAgo(){if(!GC.at)return 'not synced yet';var m=Math.round((Date.now()-GC.at)/60000);return m<1?'synced just now':m<60?'synced '+m+' min ago':'synced '+Math.round(m/60)+' hr ago';}
+function gcTools(){gcStyle();return '<span class="gtools">'+GCAL_KEYS.map(function(k){return '<button class="gpill gc-'+k+(gcHide[k]?' off':'')+'" data-gtog="'+k+'" title="'+(gcHide[k]?'Show':'Hide')+' your '+gcName(k)+' Google calendar"><i></i>'+gcName(k)+'</button>';}).join('')+
+ '<button class="gsync'+(gcBusy?' busy':'')+'" data-gsync title="Check Google Calendar now">↻ <span>'+esc(gcErr?'⚠ '+gcErr:gcAgo())+'</span></button></span>';}
+/* ---- prefs (remember last calendar + reminders on Google events), kept in a hidden lists doc ---- */
+function gcPrefs(){return find('lists','gcal-prefs')||{id:'gcal-prefs',kind:'gcal',remind:{},last:''};}
+function gcSetPrefs(ch){var p=JSON.parse(JSON.stringify(gcPrefs()));Object.keys(ch).forEach(function(k){p[k]=ch[k];});p.kind='gcal';p.name='(Google Calendar settings)';p.items=[];save('lists',p);return p;}
+function gcLastCal(){var l=gcPrefs().last||localStorage.getItem('gcLast')||'personal';return l==='planner'||GCAL_DEF[l]?l:'personal';}
+/* ---- reminders on Google events ---- */
+function gRemText(o,w){var when=dayWord(o.d,w);return '📅 '+o.t+' '+when+(o.tm?' at '+fmtTime(o.tm):'');}
+function gRemSync(key,pre){var o=gcFind(key),ref='gcal:'+key,have=DB.reminders.filter(function(r){return r.ref===ref;}),want=[];
+ if(o&&pre){var w=fireFor(o.d,o.tm||'',pre);if(w>Date.now()+60000)want.push(w);}
+ remSyncing=true;try{have.forEach(function(r){var i=want.indexOf(r.when);if(r.sent||i<0){remove('reminders',r.id,true);return;}want.splice(i,1);var tx=gRemText(o,r.when);if(tx!==r.text)save('reminders',Object.assign({},r,{text:tx}));});
+  want.forEach(function(w){save('reminders',{id:(remBase('gcal',key.replace(/\|/g,'_'))).slice(0,40)+'_'+w.toString(36),when:w,text:gRemText(o,w),repeat:'',sent:false,ref:ref});});}finally{remSyncing=false;}}
+function gRemSyncAll(){if(!loaded||!gcLoadedNow)return;try{var R=(gcPrefs().remind)||{},gone=[];Object.keys(R).forEach(function(k){var o=gcFind(k);if(!o&&GC.from&&k){gone.push(k);gRemSync(k,'');}else gRemSync(k,R[k]);});
+  DB.reminders.forEach(function(r){if(r.ref&&r.ref.indexOf('gcal:')===0&&!R[r.ref.slice(5)]){remSyncing=true;try{remove('reminders',r.id,true);}finally{remSyncing=false;}}});
+  if(gone.length){var nr=Object.assign({},R);gone.forEach(function(k){delete nr[k];});gcSetPrefs({remind:nr});}}catch(e){console.warn('gRem',e);}}
+function gSetRemind(key,pre){var R=Object.assign({},gcPrefs().remind||{});if(pre)R[key]=pre;else delete R[key];gcSetPrefs({remind:R});GIDX=null;gRemSync(key,pre);rerender();}
+function gRemOff(r){var key=r.ref.slice(5),old=(gcPrefs().remind||{})[key];gSetRemind(key,'');toast('Reminder off',old?function(){gSetRemind(key,old);drawRems();}:null);}
+/* ---- writes ---- */
+function gcPutLocal(o){var arr=GC.ev||[];var ix=-1;for(var i=0;i<arr.length;i++)if(gcKey(arr[i])===gcKey(o)){ix=i;break;}if(ix>=0)arr[ix]=o;else arr.push(o);GC.ev=arr;
+ if(GC.x&&GC.x.ev)GC.x.ev=GC.x.ev.filter(function(z){return gcKey(z)!==gcKey(o);});gcSave();GIDX=null;}
+function gcDropLocal(key){GC.ev=(GC.ev||[]).filter(function(z){return gcKey(z)!==key;});if(GC.x&&GC.x.ev)GC.x.ev=GC.x.ev.filter(function(z){return gcKey(z)!==key;});gcSave();GIDX=null;}
+function gcErrMsg(e){e=String(e||'');if(/read-only/.test(e))return 'Google says that one can’t be changed from here';if(/Failed to fetch|NetworkError|Load failed/i.test(e))return 'You look offline, so Google wasn’t updated. Try again when you’re back online';return 'Google didn’t take that change ('+e.slice(0,60)+')';}
+function gcSaveEvent(cal,v,old){var body={title:v.title,date:v.date,endDate:v.endDate&&v.endDate>v.date?v.endDate:'',time:normT(v.time),end:normT(v.end)};
+ if(old){body.id=old.id;body.from=old.k;if(v.note!==(old.n||''))body.note=v.note;}else{body.note=v.note||'';body.repeat=v.repeat||'';body.until=v.repeat?v.until||'':'';}
+ var tmp=null,oldKey=old?gcKey(old):null;
+ /* show it right away; Google confirms a moment later */
+ tmp={k:cal,id:old&&old.k===cal?old.id:'tmp'+uid(),t:body.title,d:body.date,ed:body.endDate||body.date,tm:body.time||undefined,et:body.time?(body.end||''):undefined,ad:body.time?undefined:1,n:v.note||'',pend:1};
+ if(old&&old.k!==cal)gcDropLocal(oldKey);gcPutLocal(tmp);rerender();refreshDay();setSync('busy');
+ return api('gcalPut',[cal,body]).then(function(o){if(gcKey(tmp)!==gcKey(o))gcDropLocal(gcKey(tmp));gcPutLocal(o);
+   var pre=v.remind||'',R=gcPrefs().remind||{},ok=gcKey(o);if(oldKey&&oldKey!==ok&&R[oldKey]){gSetRemind(oldKey,'');}
+   if((R[ok]||'')!==pre)gSetRemind(ok,pre);else gRemSync(ok,pre);
+   setSync('ok');rerender();refreshDay();toast((old?'Updated in':'Added to')+' your '+gcName(cal)+' Google calendar ✓');if(pre)remNudge({remind:pre});return o;})
+  .catch(function(e){gcDropLocal(gcKey(tmp));if(old)gcPutLocal(old);setSync('ok');rerender();refreshDay();toast(gcErrMsg(e));throw e;});}
+function gcDelete(o){var key=gcKey(o);gcPend[key]='del';GIDX=null;rerender();refreshDay();var done=false;
+ var t=setTimeout(go,4500);function go(){if(done)return;done=true;clearTimeout(t);window.removeEventListener('pagehide',go);
+  api('gcalDel',[o.k,o.id]).then(function(){delete gcPend[key];gcDropLocal(key);if((gcPrefs().remind||{})[key])gSetRemind(key,'');rerender();})
+   .catch(function(e){delete gcPend[key];GIDX=null;rerender();toast(gcErrMsg(e));});}
+ window.addEventListener('pagehide',go);
+ toast('Deleted from your '+gcName(o.k)+' Google calendar',function(){if(done)return;done=true;clearTimeout(t);window.removeEventListener('pagehide',go);delete gcPend[key];GIDX=null;rerender();refreshDay();});}
+/* ---- the event dialog (planner + Google) ---- */
+function calOpts(){var o=GCAL_KEYS.filter(function(k){return gcOk(k)&&gcCanWrite(k);}).map(function(k){return [k,'📆 '+gcName(k)];});return o.concat([['planner','🗒️ Just the planner']]);}
+function editEvent(e,date){var isG=!!(e&&e.g),o=isG?e.g:null;if(o&&o.ro)return gcView(o);
+ var isNew=!e||(!e.id&&!isG);e=e||{date:date||iso(today()),color:'mustard'};
+ var vals=isG?{title:o.t,date:o.d,endDate:o.ed&&o.ed!==o.d?o.ed:'',time:o.tm||'',end:o.et||'',note:o.n||'',remind:e.remind||'',cal:o.k}:Object.assign({},e,{cal:isNew?gcLastCal():'planner',time:normT(e.time)||e.time||'',end:normT(e.end)||e.end||''});
+ var fields=[{k:'title',label:'What’s happening?',ph:'Soccer practice'},{k:'cal',label:'Which calendar?',t:'chips',opts:calOpts()},{k:'date',label:(e.repeat?'Starts on':'Date'),t:'date'},{k:'endDate',label:'Ends on (optional, for multi-day)',t:'date'},
+  {k:'time',label:'Start time (optional)',t:'time'},{k:'end',label:'End time (optional)',t:'time'}];
+ if(!o||!o.rec)fields.push({k:'repeat',label:'Repeat',t:'select',opts:REPS},{k:'until',label:'Repeat until (optional)',t:'date'});
+ fields.push({k:'remind',label:'🔔 Remind me',t:'select',opts:REM_EVT},{k:'color',label:'Color',t:'swatch'},{k:'note',label:'Notes',t:'area',ph:'Bring snacks'});
+ form({title:isG?'Edit event':(e.id?'Edit event':'New event'),color:'var(--mustard)',required:'title',values:vals,fields:fields,
+  onSave:function(v){var cal=v.cal||'planner';delete v.cal;if(!v.date)v.date=iso(today());if(v.endDate&&v.endDate<=v.date)v.endDate='';
+   if(isNew){localStorage.setItem('gcLast',cal);if(gcPrefs().last!==cal)gcSetPrefs({last:cal});}
+   if(cal!=='planner'){if(isG){gcSaveEvent(cal,v,o).catch(function(){});return;}
+    var from=e.id?e:null;gcSaveEvent(cal,v,null).then(function(){if(from)remove('events',from.id,true);}).catch(function(){});return;}
+   if(isG){toast('That one lives in Google. Pick Personal or Work to keep it there');return;}
+   if(!v.repeat)v.until='';if(v.repeat)v.endDate='';var was=e.remind||'';save('events',Object.assign({},e,v));if(v.remind!==was)remNudge(v);},
+  onDelete:isG?function(){gcDelete(o);}:(e.id?function(){remove('events',e.id);}:null)});
+ var veil=document.querySelectorAll('.veil'),vv=veil[veil.length-1];if(!vv)return;var db=vv.querySelector('.db');
+ if(isG){var hint=document.createElement('div');hint.className='ghint';hint.innerHTML='<span class="gbadge gc-'+o.k+'">'+esc(gcName(o.k))+'</span> Saved in Google Calendar · nobody gets emailed'+(o.rec?'<br>🔁 This repeats in Google — changes here apply to <b>this day only</b>.':'')+(e.dupes?'<br>Google has '+(e.dupes+1)+' copies of this event; the planner shows one.':'')+(o.u?' <a href="'+esc(o.u)+'" target="_blank" rel="noopener">Open in Google ↗</a>':'');db.insertBefore(hint,db.firstChild);}
+ function sync(){var on=vv.querySelector('[data-k="cal"] .on'),c=on?on.getAttribute('data-v'):'planner',sw=vv.querySelector('[data-k="color"]');if(sw)sw.closest('.field').style.display=c==='planner'?'':'none';
+  var rp=vv.querySelector('[data-k="repeat"]');if(rp&&isG)rp.closest('.field').style.display='none';}
+ vv.addEventListener('click',function(ev){if(ev.target.closest('[data-k="cal"] button'))setTimeout(sync,0);});sync();}
+function gcView(o){var key=gcKey(o),pre=(gcPrefs().remind||{})[key]||'',why={guest:'This is an invite from someone else, so it can only be changed in Google Calendar.',guests:'Other people are on this event, so it can only be changed in Google Calendar.',type:'Google made this one (like a birthday), so it can’t be changed here.',access:'You can see this calendar but not change it.'}[o.ro]||'';
+ var b='<div class="gview"><div class="gvt">'+esc(o.t)+'</div><div class="gvm"><span class="gbadge gc-'+o.k+'">'+esc(gcName(o.k))+'</span> '+esc(gcWhen(o))+'</div>'+(o.l?'<div class="gvm">📍 '+esc(o.l)+'</div>':'')+(o.n?'<div class="gvn">'+esc(o.n)+'</div>':'')+
+  '<label class="field"><span>🔔 Remind me</span><select data-gremind="'+esc(key)+'">'+REM_EVT.map(function(c){return '<option value="'+c[0]+'"'+(c[0]===pre?' selected':'')+'>'+esc(c[1])+'</option>';}).join('')+'</select></label>'+
+  '<div class="ghint">🔒 '+esc(why)+'</div></div>';
+ sheet('Google Calendar event','var(--mustard)',b,(o.u?'<a class="btn soft sm" href="'+esc(o.u)+'" target="_blank" rel="noopener">Open in Google ↗</a>':'')+'<span class="sp"></span><button class="btn" data-x>Done</button>');}
+function gcalClick(e,t){var el;
+ if((el=t.closest('[data-ev^="g~"]'))){e.stopPropagation();var occ=GOCC[+el.getAttribute('data-ev').slice(2)];closeSheets();if(occ)editEvent(occ);return true;}
+ if((el=t.closest('[data-gtog]'))){var k=el.getAttribute('data-gtog');gcHide[k]=!gcHide[k];if(!gcHide[k])delete gcHide[k];localStorage.setItem('gcHide',JSON.stringify(gcHide));GIDX=null;render();return true;}
+ if(t.closest('[data-gsync]')){gcLoad().then(function(){if(!gcErr)toast('Google Calendar is up to date ✓');});render();return true;}
+ return false;}
+document.addEventListener('change',function(e){var t=e.target;if(t&&t.getAttribute&&t.getAttribute('data-gremind')!=null){var k=t.getAttribute('data-gremind');gSetRemind(k,t.value);if(t.value)remNudge({remind:t.value});else toast('Reminder off');}});
+function gcStart(){gcStyle();setTimeout(gcLoad,400);setInterval(function(){if(document.visibilityState==='visible')gcLoad();},4*60000);
+ document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible'&&gcStale())gcLoad();});}
+
 /* ---------------- events (delegated) ---------------- */
 function pair(s){var p=s.split(':');return {c:p[0],id:p[1],f:p[2]};}
-document.addEventListener('click',function(e){var t=e.target,el;if(remClick(e,t)||tabClick(e,t))return;
+document.addEventListener('click',function(e){var t=e.target,el;if(remClick(e,t)||gcalClick(e,t)||tabClick(e,t))return;
  if((el=t.closest('[data-tab]'))){go(el.getAttribute('data-tab'));return;}
  if(t.closest('[data-custom]')||t.id==='dashcz'){openCz();return;}
  if((el=t.closest('[data-wstyle]'))){styleDialog(el.getAttribute('data-wstyle'));return;}
@@ -1179,11 +1316,11 @@ function boot(){try{applyLook();}catch(e){console.warn('look',e);}buildNav();set
  $('#bellbtn').onclick=openN;$('#nclose').onclick=closeN;$('#nen').onclick=enablePush;$('#ntest').onclick=testPush;$('#radd').onclick=addRem;
  render();nStatus();
  if(!PK){showLock();return;}
- loadAll();loadSettings();
+ loadAll();loadSettings();gcStart();
  api('getLayout').then(function(L){if(L&&L.widgets&&L.widgets.length&&(L.t||0)>=(LAYOUT.t||0)&&JSON.stringify(L.widgets)!==JSON.stringify(LAYOUT.widgets)){LAYOUT=L;localStorage.setItem('layout2',JSON.stringify(LAYOUT));if(cur==='dashboard'){killGrid();render();}}}).catch(function(){});
  if('serviceWorker' in navigator)navigator.serviceWorker.register('firebase-messaging-sw.js').catch(function(){});
  setInterval(function(){if(document.visibilityState==='visible'&&!OUT.length)loadAll();},5*60000);
  document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible'&&loaded&&!OUT.length)loadAll();});}
-window.__planner={S:function(){return S;},IMGS:function(){return IMGS;},openCz:openCz,DB:DB,LAYOUT:function(){return LAYOUT;},go:go,version:VERSION,outbox:function(){return OUT;}};
+window.__planner={GC:function(){return GC;},gcLoad:gcLoad,hiddenCopies:hiddenCopies,S:function(){return S;},IMGS:function(){return IMGS;},openCz:openCz,DB:DB,LAYOUT:function(){return LAYOUT;},go:go,version:VERSION,outbox:function(){return OUT;}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();

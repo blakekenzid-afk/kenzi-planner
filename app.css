@@ -772,3 +772,44 @@ body.darkth .ideab,body.darkth .fchips button{background:rgba(255,255,255,.06);c
 .grid-stack .card>.wh.clear::before{content:'';position:absolute;left:50%;top:9px;transform:translateX(-50%);width:42px;height:5px;border-radius:3px;background:color-mix(in srgb,var(--ink) 28%,transparent);opacity:.55;transition:opacity .2s}
 .grid-stack .grid-stack-item:hover .card>.wh.clear::before{opacity:1}
 .grid-stack .card[data-wtype=photo],.grid-stack .card[data-wtype=sticker],.grid-stack .card[data-wtype=welcome],.grid-stack .card[data-wtype=quote]{cursor:grab}
+
+/* ===== Phase 5: Google Calendar ===== */
+.gtools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1 1 auto;justify-content:flex-start;min-width:0}
+.gpill{display:inline-flex;align-items:center;gap:5px;border:0;border-radius:999px;padding:4px 10px 4px 6px;font:inherit;font-size:12px;font-weight:800;background:var(--soft,#F1E3CC);color:var(--softInk,#6B4127);cursor:pointer;line-height:1.2}
+.gpill i{width:11px;height:11px;border-radius:50%;display:inline-block;flex:0 0 11px}
+.gpill.off{opacity:.5;text-decoration:line-through}
+.gpill.off i{filter:grayscale(1)}
+.gsync{border:0;background:transparent;font:inherit;font-size:11.5px;font-weight:700;color:var(--ink2,#7A5A44);cursor:pointer;padding:3px 4px;display:inline-flex;gap:4px;align-items:center;min-width:0;max-width:100%;text-align:left}
+.gsync span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gsync.busy{opacity:.6}
+.gbadge{display:inline-block;font-size:10.5px;font-weight:800;border-radius:6px;padding:1px 6px;vertical-align:1px;line-height:1.35;letter-spacing:.2px;white-space:nowrap}
+.gdot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:middle}
+.ghint{font-size:12.5px;font-weight:700;color:var(--ink2,#7A5A44);background:var(--soft,#F6EBD9);border-radius:10px;padding:8px 10px;margin-bottom:10px;line-height:1.45}
+.ghint a{color:var(--rust,#B5542B);font-weight:800}
+.gview .gvt{font-family:var(--serif);font-size:21px;font-weight:700;color:var(--head,#7A3A1E);margin-bottom:6px;overflow-wrap:anywhere}
+.gview .gvm{font-weight:700;color:var(--ink2,#7A5A44);margin-bottom:6px;font-size:14px}
+.gview .gvn{white-space:pre-wrap;font-size:13.5px;background:var(--cream,#FBF6EC);border-radius:10px;padding:8px 10px;margin:8px 0 10px;overflow-wrap:anywhere;max-height:220px;overflow:auto}
+.gview .ghint{margin-top:10px;margin-bottom:0}
+.caltools .gtools+.tgl{flex:0 0 auto}
+/* week grids: readable chips (no mid-word breaks), and rows instead of 7 skinny columns when the card is narrow */
+.bd:has(> .wkview),.bd:has(> .wk){container-type:inline-size}
+.wk .chip,.wkview .chip{overflow-wrap:break-word;word-break:normal;-webkit-hyphens:auto;hyphens:auto;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;flex:0 0 auto}
+.wk .chip{font-size:11px;padding:3px 4px;line-height:1.2}
+.wk .col{overflow:hidden}
+@container (max-width:700px){
+ .wkview{grid-template-columns:1fr;gap:5px}
+ .wkview .d{min-height:0;flex-direction:row;flex-wrap:wrap;align-items:center;padding:6px 8px;gap:5px}
+ .wkview .dh{width:58px;text-align:left;display:flex;gap:5px;align-items:baseline;flex:0 0 58px}
+ .wkview .dh small{display:inline}
+ .wkview .chip{display:inline-block;-webkit-line-clamp:unset;max-width:100%;white-space:nowrap;text-overflow:ellipsis;font-size:12.5px;text-align:left}
+ .wkview .chip .tm{display:inline;margin-right:4px}
+}
+@container (max-width:520px){
+ .wk{grid-template-columns:1fr;min-height:0;height:auto}
+ .wk .col{flex-direction:row;flex-wrap:wrap;align-items:center;border-right:0;border-bottom:1.5px solid var(--line);padding:5px 0;gap:5px;overflow:visible}
+ .wk .col:last-child{border-bottom:0}
+ .wk .dh{width:54px;text-align:left;border:0;padding:0;margin:0;display:flex;gap:5px;align-items:baseline;flex:0 0 54px}
+ .wk .col.today .dh small{width:auto;padding:0 7px}
+ .wk .chip{display:inline-block;-webkit-line-clamp:unset;max-width:100%;white-space:nowrap;text-overflow:ellipsis;font-size:12px;text-align:left}
+ .wk .chip .tm{display:inline;margin-right:4px}
+}
