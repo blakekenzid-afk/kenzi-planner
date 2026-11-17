@@ -113,3 +113,69 @@ function listImages(){var out=[],tok='';do{var d=fsReq_('get',FS_BASE+'images?pa
  (d.documents||[]).forEach(function(x){try{var o=JSON.parse(x.fields.j.stringValue);o.id=x.name.split('/').pop();out.push(o);}catch(e){}});tok=d.nextPageToken||'';}while(tok);
  return out.sort(function(a,b){return (b.created||0)-(a.created||0);});}
 function delImage(id){imgId_(id);var m=docGet_('images/'+id),n=m&&m.parts?m.parts:1;for(var i=0;i<n;i++)fsReq_('delete',FS_BASE+'imgparts/'+id+'_'+i);fsReq_('delete',FS_BASE+'images/'+id);return true;}
+
+// ===== Phase 5: Google Calendar two-way sync (personal + work) — 2026-11-17 =====
+// Uses the Advanced Service "Google Calendar API" (identifier: Calendar). Every write uses sendUpdates:'none'
+// and refuses events that have other guests, events organized by someone else, or special event types.
+var GCALS={personal:'blakekenzid@gmail.com',work:'kenzi_diskey@olemiss.k12.in.us'};
+['gcalList','gcalPut','gcalDel','gcalStatus'].forEach(function(f){API_FNS[f]=1;});
+function gcalId_(w){var id=GCALS[w];if(!id)throw 'unknown calendar '+w;return id;}
+function gcalDay_(s){s=String(s||'');if(!/^\d{4}-\d{2}-\d{2}$/.test(s))throw 'bad date';return s;}
+function gcalTime_(t){var m=String(t||'').trim().match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])?$/);if(!m)return '';var h=+m[1];if(m[3]){var pm=/p/i.test(m[3]);if(h===12)h=0;if(pm)h+=12;}if(h>23)return '';return ('0'+h).slice(-2)+':'+m[2];}
+function gcalAddDay_(ds,n){var p=ds.split('-'),d=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]+n));return d.toISOString().slice(0,10);}
+function gcalEvId_(id){id=String(id||'');if(!/^[A-Za-z0-9_@.\-]{1,1024}$/.test(id))throw 'bad event id';return id;}
+function gcalRole_(w){var c=CacheService.getScriptCache(),k='gcrole_'+w,r=c.get(k);if(r)return r;
+ var cl=Calendar.CalendarList.get(gcalId_(w));r=cl.accessRole||'none';c.put(k,r,21600);c.put('gccolor_'+w,cl.backgroundColor||'',21600);return r;}
+function gcalText_(s){return String(s||'').replace(/<br\s*\/?>/gi,'\n').replace(/<\/(p|div|li)>/gi,'\n').replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/\n{3,}/g,'\n\n').trim();}
+function gcalRo_(w,cal,e,role){if(role!=='owner'&&role!=='writer')return 'access';
+ if(e.eventType&&e.eventType!=='default')return 'type';
+ var org=e.organizer||{};if(!(org.self||org.email===cal||org.email===GCALS.personal))return 'guest';
+ var others=(e.attendees||[]).filter(function(a){return !a.self&&!a.resource&&!a.organizer&&a.email!==cal;}).length;if(others)return 'guests';
+ return '';}
+function gcalNorm_(w,cal,e,role){var st=e.start||{},en=e.end||{},o={k:w,id:e.id,t:e.summary||'(no title)'};
+ if(st.date){o.ad=1;o.d=st.date;o.ed=en.date?gcalAddDay_(en.date,-1):st.date;if(o.ed<o.d)o.ed=o.d;}
+ else{var s=new Date(st.dateTime),x=new Date(en.dateTime||st.dateTime);o.d=Utilities.formatDate(s,PTZ,'yyyy-MM-dd');o.tm=Utilities.formatDate(s,PTZ,'HH:mm');
+  o.ed=Utilities.formatDate(x,PTZ,'yyyy-MM-dd');o.et=Utilities.formatDate(x,PTZ,'HH:mm');
+  if(o.et==='00:00'&&o.ed>o.d){o.ed=gcalAddDay_(o.ed,-1);o.et='';if(o.ed<o.d)o.ed=o.d;}}
+ if(e.description)o.n=gcalText_(e.description).slice(0,800);if(e.location)o.l=String(e.location).slice(0,200);
+ if(e.recurringEventId)o.rec=1;if(e.htmlLink)o.u=e.htmlLink;
+ var ro=gcalRo_(w,cal,e,role);if(ro)o.ro=ro;
+ if(e.extendedProperties&&e.extendedProperties.private&&e.extendedProperties.private.planner)o.p=1;
+ return o;}
+function gcalStatus(){var o={};Object.keys(GCALS).forEach(function(w){try{var c=Calendar.CalendarList.get(GCALS[w]);o[w]={ok:true,role:c.accessRole,color:c.backgroundColor,name:c.summaryOverride||c.summary,tz:c.timeZone};}catch(e){o[w]={ok:false,err:String(e&&e.message||e)};}});return o;}
+function gcalList(from,to){from=gcalDay_(from);to=gcalDay_(to);if(to<from)throw 'bad range';
+ if((new Date(to)-new Date(from))/864e5>500)throw 'range too long';
+ var out={from:from,to:to,cals:{},ev:[],at:Date.now()},tMin=gcalAddDay_(from,-1)+'T00:00:00Z',tMax=gcalAddDay_(to,2)+'T00:00:00Z';
+ Object.keys(GCALS).forEach(function(w){var cal=GCALS[w];
+  try{var cl=Calendar.CalendarList.get(cal),role=cl.accessRole;out.cals[w]={ok:true,role:role,color:cl.backgroundColor||'',name:cl.summaryOverride||cl.summary};
+   var tok=null,n=0;do{var r=Calendar.Events.list(cal,{timeMin:tMin,timeMax:tMax,singleEvents:true,orderBy:'startTime',maxResults:2500,pageToken:tok||undefined});
+    (r.items||[]).forEach(function(e){if(e.status==='cancelled'||e.eventType==='workingLocation'||e.eventType==='focusTime')return;
+     var o=gcalNorm_(w,cal,e,role);if(o.ed<from||o.d>to)return;out.ev.push(o);});
+    tok=r.nextPageToken;n++;}while(tok&&n<10);
+  }catch(err){out.cals[w]={ok:false,err:String(err&&err.message||err)};}});
+ return out;}
+function gcalBody_(ev,isNew){var title=String(ev.title||'').trim().slice(0,300);if(!title)throw 'need a title';
+ var d=gcalDay_(ev.date),ed=ev.endDate?gcalDay_(ev.endDate):d;if(ed<d)ed=d;
+ var tm=gcalTime_(ev.time),et=gcalTime_(ev.end),b={summary:title,description:String(ev.note||'').slice(0,4000),location:String(ev.loc||'').slice(0,300)};
+ if(!tm){b.start={date:d};b.end={date:gcalAddDay_(ed,1)};}
+ else{var endD=ed,endT=et;
+  if(!endT||(endD===d&&endT<=tm)){var h=+tm.slice(0,2)+1;endD=d;if(h>23){h-=24;endD=gcalAddDay_(d,1);}endT=('0'+h).slice(-2)+tm.slice(2);}
+  b.start={dateTime:d+'T'+tm+':00',timeZone:PTZ};b.end={dateTime:endD+'T'+endT+':00',timeZone:PTZ};}
+ if(isNew){var R={daily:'FREQ=DAILY',weekly:'FREQ=WEEKLY',biweekly:'FREQ=WEEKLY;INTERVAL=2',monthly:'FREQ=MONTHLY',yearly:'FREQ=YEARLY'}[ev.repeat||''];
+  if(R){var u=ev.until?gcalDay_(ev.until):'';if(u)R+=';UNTIL='+(tm?gcalAddDay_(u,1).replace(/-/g,'')+'T045959Z':u.replace(/-/g,''));b.recurrence=['RRULE:'+R];}
+  b.extendedProperties={private:{planner:'1'}};}
+ return b;}
+function gcalPut(w,ev){var cal=gcalId_(w);if(!ev||typeof ev!=='object'||Array.isArray(ev))throw 'bad event';
+ var role=gcalRole_(w);if(role!=='owner'&&role!=='writer')throw 'read-only calendar';
+ if(!ev.id){var made=Calendar.Events.insert(gcalBody_(ev,true),cal,{sendUpdates:'none'});return gcalNorm_(w,cal,made,role);}
+ var id=gcalEvId_(ev.id),fromW=ev.from&&GCALS[ev.from]?ev.from:w,fromCal=GCALS[fromW];
+ var cur=Calendar.Events.get(fromCal,id),ro=gcalRo_(fromW,fromCal,cur,gcalRole_(fromW));if(ro)throw 'read-only event ('+ro+')';
+ if(fromW!==w){if(cur.recurringEventId||cur.recurrence)throw 'cannot move a repeating event';cur=Calendar.Events.move(fromCal,id,cal,{sendUpdates:'none'});}
+ var b=gcalBody_(ev,false);cur.summary=b.summary;cur.description=b.description;cur.location=b.location;cur.start=b.start;cur.end=b.end;
+ var saved=Calendar.Events.update(cur,cal,cur.id,{sendUpdates:'none'});return gcalNorm_(w,cal,saved,role);}
+function gcalDel(w,id){var cal=gcalId_(w);id=gcalEvId_(id);var cur;
+ try{cur=Calendar.Events.get(cal,id);}catch(e){if(/not ?found|404|410|deleted/i.test(String(e&&e.message||e)))return true;throw e;}
+ if(cur.status==='cancelled')return true;
+ var ro=gcalRo_(w,cal,cur,gcalRole_(w));if(ro)throw 'read-only event ('+ro+')';
+ Calendar.Events.remove(cal,id,{sendUpdates:'none'});return true;}
+function gcalAuthorize(){return gcalStatus();}
