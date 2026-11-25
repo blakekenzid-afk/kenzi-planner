@@ -544,3 +544,16 @@ body.folded .rsep{width:30px}
 .pill .bdot.hide{display:none}
 @media (max-width:700px){.bacts{gap:5px;flex-direction:row}.pill.ico{width:34px;height:34px;padding:7px}.pill.ico svg{width:16px;height:16px}.banner .bacts{align-self:flex-start}}
 @media (max-width:420px){.banner{flex-wrap:wrap}.banner .bacts{order:-1;margin-left:auto}.banner .badge{order:-2}.banner .btxt{flex-basis:100%}}
+/* cleaning: each room has its own color (title + its tasks) */
+.rblk{display:flex;flex-direction:column;gap:9px}
+.grp.rgrp{display:flex;align-items:center;gap:8px;margin:10px 2px 0}
+.rgrp .rname{display:inline-flex;align-items:center;gap:7px;background:var(--c);border:1.5px solid var(--d);color:var(--ink);border-radius:999px;padding:5px 13px 5px 10px;font-size:11.5px;letter-spacing:.11em;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rgrp .rname i{flex:0 0 9px;width:9px;height:9px;border-radius:50%;background:var(--d)}
+.rgrp .rcol{flex:0 0 34px;width:34px;height:34px;border-radius:50%;background:#fff;border:1.5px solid color-mix(in srgb,var(--d) 45%,transparent);color:var(--d);display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
+.rgrp .rcol svg{width:16px;height:16px}
+.rgrp .rcol:hover{background:var(--row)}
+.row.rrow{border-left:5px solid var(--d);padding-left:13px}
+.rprev{display:flex;flex-direction:column;gap:9px;margin-top:14px;pointer-events:none}
+.rprev .grp.rgrp{margin-top:0}
+.pick[data-pick=room] button{background:var(--row);border-color:color-mix(in srgb,var(--d) 45%,transparent)}
+.pick[data-pick=room] button.on{background:var(--c);border-color:var(--d);box-shadow:0 0 0 1.5px var(--d) inset}

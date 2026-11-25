@@ -4,7 +4,7 @@
    budget, dashboard notes, settings) are docs in "lists" with kind:"home" (v2's Lists page hides any list with a kind).
    Pre-K Planner docs (kind:"prek", id prek_…) are dropped on load and never shown or written here. */
 (function(){'use strict';
-var VERSION='3.0.0';
+var VERSION='3.0.1';
 var API=window.PLANNER_API_OVERRIDE||'https://script.google.com/macros/s/AKfycby2K77ahxWPKILsKQNSUwa199QUB7uymfJbCbZUT9eRmwBT-8f6wZW-WVovfLPS7cZ4bQ/exec';
 var COLS=['groceries','meals','todos','events','reminders','brain','bills','lists','kids'];
 var LSDB='h3db',LSOUT='h3out',LSUI='h3ui';
@@ -700,7 +700,21 @@ function editBud(d){var isNew=!d;d=d||hnew('budget',{type:'plan'});openForm({sec
   onSave:function(v){d=clone(d);d.f=v;hsave(d);toast(isNew?'Added ✓':'Updated ✓');},onDelete:isNew?null:function(){var cp=clone(d);remove('lists',d.id);toast('Deleted',function(){save('lists',cp);});},confirmDel:'Delete this line?'});}
 
 /* =================== CLEANING (home docs sec "cleaning") =================== */
-var ROOMS=['Kitchen','Bathrooms','Bedrooms','Living room','Laundry','Floors','Outside','Whole house'];
+var ROOMS=['Kitchen','Bathrooms','Bedrooms','Kids’ rooms','Living room','Laundry','Floors','Outside','Whole house'];
+/* room colors: soft NOVA pastels per room; her picks live in settings (cfg().roomCol, keyed by roomKey) */
+var ROOMDEF={kitchen:'#CFE5C6',bathroom:'#C6E2F5',bedroom:'#E2D2F4',kidsroom:'#F6C6DA',livingroom:'#FCE3A3',laundry:'#B8E2E6',floor:'#EEDDC4',outside:'#DDEBB8',wholehouse:'#F9CDB8'};
+var ROOMX=['#CDD3EE','#F4C2C9','#FBD3AE','#BFE6D8','#E5E1D8','#D9CFF2','#F7C6BA','#CBD3F3'];
+function roomKey(r){return String(r||'Whole house').toLowerCase().replace(/[^a-z]/g,'').replace(/s$/,'')||'wholehouse';}
+function roomC(r){var k=roomKey(r),mine=(cfg().roomCol||{})[k];if(mine)return mine;if(ROOMDEF[k])return ROOMDEF[k];
+ var extra=[];hdocs('cleaning').forEach(function(d){var x=roomKey(d.f.room);if(!ROOMDEF[x]&&extra.indexOf(x)<0)extra.push(x);});extra.sort();var i=extra.indexOf(k);if(i<0){i=0;for(var j=0;j<k.length;j++)i+=k.charCodeAt(j);}return ROOMX[i%ROOMX.length];}
+function roomVars(r){var c=roomC(r),d=deepen(c),rw=rowColor(c);for(var i=0;i<10&&contrast(d,rw)<4.7;i++)d=mix(d,'#1E1A30',.1);return vars({c:c,d:d});}
+function roomHead(r){return '<div class="grp rgrp" style="'+roomVars(r)+'"><span class="rname"><i></i>'+esc(r)+'</span><button class="rcol" data-roomcol="'+esc(r)+'" aria-label="Change the color of '+esc(r)+'" title="Room color">'+ic('palette')+'</button></div>';}
+function roomColOpen(r){var k=roomKey(r),cur=roomC(r),mine=(cfg().roomCol||{})[k];
+ var h='<p class="hint">Pick a color for '+esc(r)+'. Its title and tasks change together.</p><div class="czpal">'+SWATCH.map(function(c){return '<button class="swb'+(cur.toUpperCase()===c.toUpperCase()?' on':'')+'" style="background:'+c+'" data-roomset="'+esc(r)+'|'+c+'" aria-label="'+c+'"></button>';}).join('')+
+  '<label class="anyc" title="Any color"><input type="color" value="'+esc(cur)+'" data-roomany="'+esc(r)+'"><span>Any color</span></label>'+(mine?'<button class="ghost sm" data-roomset="'+esc(r)+'|">Default</button>':'')+'</div>'+
+  '<div class="rprev" style="'+roomVars(r)+'">'+roomHead(r).replace(/<button[\s\S]*<\/button>/,'')+row({title:'This is how '+r+' tasks look',check:false,checkVal:'',tags:[r],meta:'Every week'})+'</div>';
+ openForm({sec:SM.cleaning,title:'Room color',fields:[],values:{},top:h,noCancel:true,focus:false,onSave:function(){},ok:'Done'});FORM.room=r;}
+function roomColSet(r,c){var m=clone(cfg().roomCol||{}),k=roomKey(r);if(c)m[k]=c;else delete m[k];setCfg({roomCol:Object.keys(m).length?m:undefined},true);roomColOpen(r);rerender();}
 var CFREQ=[['daily','Every day'],['weekly','Every week'],['biweekly','Every 2 weeks'],['monthly','Every month'],['quarterly','Every 3 months'],['yearly','Once a year']];
 var CFN={};CFREQ.forEach(function(c){CFN[c[0]]=c[1];});
 function cleanDue(d){var f=d.f||{},last=f.last;if(!last)return f.start||today();var n={daily:1,weekly:7,biweekly:14,monthly:30,quarterly:91,yearly:365}[f.freq||'weekly']||7;return addDays(last,n);}
@@ -711,12 +725,12 @@ function cleanView(tab){if(tab!=='due'&&tab!=='rooms')tab=UI.cleanTab||'due';UI.
  if(tab==='due'){var sorted=a.slice().sort(function(x,y){var p=cleanDue(x),q=cleanDue(y);return p<q?-1:p>q?1:String(x.f.task).localeCompare(String(y.f.task));});
   var G=[['🧽 Due today',function(d){return cleanDue(d)<=t;}],['📅 Later this week',function(d){var c=cleanDue(d);return c>t&&c<=addDays(t,7);}],['🌿 Coming up',function(d){return cleanDue(d)>addDays(t,7);}]];
   G.forEach(function(g){var it=sorted.filter(g[1]);if(it.length)h+=grp(g[0])+it.map(cleanRow).join('');});return h;}
- ROOMS.concat(a.map(function(d){return d.f.room;}).filter(function(r){return r&&ROOMS.indexOf(r)<0;})).forEach(function(r,i,arr){if(arr.indexOf(r)!==i)return;var it=a.filter(function(d){return (d.f.room||'Whole house')===r;});if(it.length)h+=grp(r)+it.sort(function(x,y){return cleanDue(x)<cleanDue(y)?-1:1;}).map(cleanRow).join('');});return h;}
-function cleanRow(d){var f=d.f,due=cleanDue(d),od=due<today();return row({title:f.task,check:false,checkVal:d.id,checkAttr:'clean',attr:'data-open="h:'+d.id+'"',tags:[f.room,f.who&&f.who!=='Me'?f.who:'',f.remind?'🔔':''],meta:(CFN[f.freq]||'')+(f.last?' · last done '+nice(f.last):' · not done yet'),side:due<=today()?(od?'overdue':'today'):nice(due),sideCls:od?'late':''});}
+ ROOMS.concat(a.map(function(d){return d.f.room;}).filter(function(r){return r&&ROOMS.indexOf(r)<0;})).forEach(function(r,i,arr){if(arr.indexOf(r)!==i)return;var it=a.filter(function(d){return (d.f.room||'Whole house')===r;});if(it.length)h+='<div class="rblk">'+roomHead(r)+it.sort(function(x,y){return cleanDue(x)<cleanDue(y)?-1:1;}).map(cleanRow).join('')+'</div>';});return h;}
+function cleanRow(d){var f=d.f,due=cleanDue(d),od=due<today();return row({title:f.task,check:false,checkVal:d.id,checkAttr:'clean',cls:'rrow',attr:'data-open="h:'+d.id+'" style="'+roomVars(f.room||'Whole house')+'"',tags:[f.room,f.who&&f.who!=='Me'?f.who:'',f.remind?'🔔':''],meta:(CFN[f.freq]||'')+(f.last?' · last done '+nice(f.last):' · not done yet'),side:due<=today()?(od?'overdue':'today'):nice(due),sideCls:od?'late':''});}
 function editClean(d){var isNew=!d;d=d||hnew('cleaning',{freq:'weekly',room:'Kitchen'});openForm({sec:SM.cleaning,title:isNew?'New cleaning task':'Edit cleaning task',values:d.f,fields:[
   {k:'task',l:'Task',req:1,ph:'Clean bathrooms'},{k:'room',l:'Room',t:'pick',opts:ROOMS},{k:'freq',l:'How often?',t:'select',opts:CFREQ,blank:false,half:1},{k:'last',l:'Last done',t:'date',opt:1,half:1},
   {k:'who',l:'Who does it',t:'pick',opts:['Me','Blake','Weston','Holden','Everyone']},{k:'note',l:'Notes',t:'long',opt:1,ph:'Products, steps…'}],
-  onSave:function(v){d=clone(d);d.f=Object.assign({},d.f,v);if(isNew&&!v.last)d.f.start=today();hsave(d);toast(isNew?'Added ✓':'Updated ✓');},onDelete:isNew?null:function(){var cp=clone(d);remove('lists',d.id);toast('Deleted',function(){save('lists',cp);});},confirmDel:'Delete this task?'});}
+  onSave:function(v){d=clone(d);d.f=Object.assign({},d.f,v);if(isNew&&!v.last)d.f.start=today();hsave(d);toast(isNew?'Added ✓':'Updated ✓');},onDelete:isNew?null:function(){var cp=clone(d);remove('lists',d.id);toast('Deleted',function(){save('lists',cp);});},confirmDel:'Delete this task?'});$$('[data-pick=room] button').forEach(function(b){b.setAttribute('style',roomVars(b.getAttribute('data-val')));});}
 function cleanDone(id){var d=hget(id);if(!d)return;var old=clone(d),c=clone(d);c.f.last=today();hsave(c);toast('Nice! “'+c.f.task+'” is done ✨ Next: '+nice(cleanDue(c)),function(){hsave(old);});}
 
 /* =================== BRAIN DUMP (v2 "brain") =================== */
@@ -1180,6 +1194,9 @@ document.addEventListener('click',function(e){var t=e.target,el;if(!t.closest)re
   render();toast(cnt?'Copied '+cnt+' dinner'+(cnt===1?'':'s'):'Nothing to copy (or this week’s already filled)',cnt?function(){undo.forEach(function(d){setDinner(d,'');});render();}:null);return;}
  if((el=t.closest('[data-mealclear]'))){var wk2=el.getAttribute('data-mealclear'),gone=[];for(var q=0;q<7;q++){var m2=mealFor(addDays(wk2,q));if(m2){gone.push(clone(m2));remove('meals',m2.id,true);}}render();
   if(gone.length)toast('Cleared the week',function(){gone.forEach(function(m){save('meals',m,true);});render();});return;}
+ /* cleaning room colors */
+ if((el=t.closest('[data-roomcol]'))){e.stopPropagation();roomColOpen(el.getAttribute('data-roomcol'));return;}
+ if((el=t.closest('[data-roomset]'))){var rs=el.getAttribute('data-roomset'),ri=rs.lastIndexOf('|');roomColSet(rs.slice(0,ri),rs.slice(ri+1));return;}
  /* generic */
  if((el=t.closest('[data-open]'))){openEdit(el.getAttribute('data-open'));return;}
  if((el=t.closest('[data-new]'))){newFor(el.getAttribute('data-new'),'new');return;}
@@ -1220,6 +1237,7 @@ document.addEventListener('keydown',function(e){var t=e.target;
  if((e.key==='Enter'||e.key===' ')&&t.matches&&t.matches('.row[role=button],.sticky[role=button]')){e.preventDefault();t.click();return;}
  if(e.key==='Enter'&&FORM&&t.matches&&t.matches('.sh-b input[type=text],.sh-b input[type=date],.sh-b input[type=time]')&&!FORM.cz&&!FORM.bell){e.preventDefault();saveForm();}
  if(e.key==='Enter'&&FORM&&FORM.bell&&t.id==='r_text'){e.preventDefault();addRemFromBell();}});
+document.addEventListener('change',function(e){var t=e.target;if(t&&t.getAttribute&&t.getAttribute('data-roomany')){var c=pastel(t.value.toUpperCase());if(lum(c)<.5)c=mix(c,'#FFFFFF',.4);roomColSet(t.getAttribute('data-roomany'),c);}});
 document.addEventListener('change',function(e){var t=e.target;if(!t||!t.classList)return;
  if(t.classList.contains('din')){var ds=t.getAttribute('data-din'),v=t.value.trim(),me=mealFor(ds);if((me&&me.dinner)===v||(!me&&!v))return;setDinner(ds,v);var r=t.closest('.drow');if(r){var mk=r.querySelector('[data-made]');if(mk)mk.disabled=!v;}return;}
  if(t.getAttribute&&t.getAttribute('data-gremind')!=null){var k=t.getAttribute('data-gremind');gSetRemind(k,t.value);if(t.value)remNudge(t.value);else toast('Reminder off');return;}
