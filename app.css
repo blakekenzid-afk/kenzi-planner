@@ -692,3 +692,4 @@ body.folded .rsep{width:30px}
 }
 .tbslot .tbat{max-width:220px;margin-bottom:6px}
 .tbd.on small{color:var(--ink)}
+@media (max-width:900px){.tbd .tbf{white-space:normal;line-height:1.2}}
