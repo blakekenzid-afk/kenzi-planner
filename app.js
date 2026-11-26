@@ -1245,7 +1245,7 @@ function regBlocks(){var b=cfg().blocks;return Array.isArray(b)?b:[];}
 function cleanOn(ds){return cleanWeek(monday(ds))[ds]||[];}
 function cleanAt(f,ds){return (f.atOn&&f.atOn[ds])||f.at||'';}
 function dayPlan(ds){var B=[],allDay=[],load=[],todoOpen=[];
- eventsOn(ds).forEach(function(e){var s=tmin(e.time);if(s<0){allDay.push(e);return;}var en=tmin(e.end),def=e.g?30:60;if(en<=s)en=s+def;
+ var seenAD={};eventsOn(ds).forEach(function(e){var s=tmin(e.time);if(s<0){var nk=nTitle(e.title);if(!seenAD[nk]){seenAD[nk]=1;allDay.push(e);}return;}var en=tmin(e.end),def=e.g?30:60;if(en<=s)en=s+def;
   B.push({s:s,e:en,t:e.title,ty:e.g?(e.cal==='work'?'work':'personal'):'ev',ev:e,key:'ev:'+e.id,ds:ds});});
  hdocs('appts').forEach(function(d){if(d.f.date!==ds)return;var s=tmin(d.f.time);if(s<0){allDay.push({title:'🩺 '+apptTitle(d.f),appt:d});return;}B.push({s:s,e:s+(parseInt(d.f.dur,10)||60),t:'🩺 '+apptTitle(d.f),ty:'appt',key:'h:'+d.id});});
  DB.todos.forEach(function(t){if(t.due!==ds)return;var s=tmin(t.at),m=todoEst(t).m;if(s<0){if(!t.done)todoOpen.push(t);return;}B.push({s:s,e:s+m,t:t.text,ty:'todo',key:'todos:'+t.id,done:!!t.done,est:todoEst(t)});});
@@ -1298,14 +1298,14 @@ function timeView(){var t=today(),ds=UI.tbDay||t;if(ds<addDays(t,-60)||Date.now(
  if(P.load.length)h+='<div class="tball tbload"><span class="tbh">Cleaning today, no set time · ~'+esc(fmtMin(P.loadMin))+'</span>'+P.load.map(function(x){return '<span class="tbc tbk'+(x.done?' done':'')+'" data-tbset="clean|'+x.d.id+'|'+ds+'">'+esc(x.d.f.task)+' <em>~'+esc(fmtMin(x.m))+'</em></span>';}).join('')+'<span class="hint">Tap one to give it a time.</span></div>';
  if(P.todoOpen.length)h+='<div class="tball tbload"><span class="tbh">To-dos due, no set time</span>'+P.todoOpen.map(function(x){return '<span class="tbc tbk" data-tbset="todo|'+x.id+'|'+ds+'">'+esc(x.text)+' <em>~'+esc(fmtMin(todoEst(x).m))+'</em></span>';}).join('')+'</div>';
  h+=timeline(P);
- h+='<div class="hint">Tap a free space to plan something there. Tap a block to change it.</div>';return h;}
+ h+='<div class="hint">Tap an open space to plan something there. Tap a block to change it.</div>';return h;}
 function layoutCols(B){var vis=B.map(function(b){return {b:b,s:Math.max(b.s,DAY0),e:Math.min(Math.max(b.e,b.s+28),DAY1+60)};}).filter(function(x){return x.b.e>DAY0&&x.b.s<DAY1;}),groups=[],cur=null,end=-1;
  vis.forEach(function(x){if(!cur||x.s>=end){cur=[];groups.push(cur);end=x.e;}else end=Math.max(end,x.e);cur.push(x);});
  groups.forEach(function(g){var cols=[];g.forEach(function(x){for(var c=0;c<cols.length;c++)if(cols[c]<=x.s){x.c=c;cols[c]=x.e;return;}x.c=cols.length;cols.push(x.e);});g.forEach(function(x){x.n=cols.length;});});return vis;}
 function timeline(P){var H=tbH(),h='<div class="tml" style="height:'+(DAYLEN/60*H+2)+'px">';
  for(var m=DAY0;m<=DAY1;m+=60)h+='<div class="tmh" style="top:'+((m-DAY0)/60*H)+'px"><span>'+fmtT(mtT(m)).replace(':00','')+'</span></div>';
  h+='<div class="tmb">';
- P.gaps.forEach(function(g){if(g[1]-g[0]<15)return;var top=(g[0]-DAY0)/60*H,ht=(g[1]-g[0])/60*H;h+='<button class="tfree" data-tbslot="'+P.ds+'|'+g[0]+'|'+g[1]+'" style="top:'+(top+2)+'px;height:'+Math.max(ht-4,10)+'px" aria-label="Free '+esc(fmtT(mtT(g[0])))+' to '+esc(fmtT(mtT(g[1])))+', plan something">'+(g[1]-g[0]>=25?'<span>Free · '+esc(fmtMin(g[1]-g[0]))+'</span>':'')+'</button>';});
+ P.gaps.forEach(function(g){if(g[1]-g[0]<15)return;var top=(g[0]-DAY0)/60*H,ht=(g[1]-g[0])/60*H;h+='<button class="tfree" data-tbslot="'+P.ds+'|'+g[0]+'|'+g[1]+'" style="top:'+(top+2)+'px;height:'+Math.max(ht-4,10)+'px" aria-label="Open time '+esc(fmtT(mtT(g[0])))+' to '+esc(fmtT(mtT(g[1])))+', plan something">'+(g[1]-g[0]>=25?'<span>Open · '+esc(fmtMin(g[1]-g[0]))+'</span>':'')+'</button>';});
  layoutCols(P.blocks).forEach(function(x){var b=x.b,T=TBT[b.ty],top=(x.s-DAY0)/60*H,ht=Math.max((Math.min(b.e,DAY1)-x.s)/60*H,24),w=100/x.n;
   var gcc=b.ty==='work'||b.ty==='personal';
   h+='<div class="tbk2 ty-'+b.ty+(b.done?' done':'')+(ht<40?' sm':'')+'" role="button" tabindex="0" data-tbblk="'+esc(b.key)+'|'+P.ds+'"'+(b.ev?' data-ev="'+esc(b.ev.id)+'" data-ds="'+P.ds+'"':'')+' style="top:'+(top+1)+'px;height:'+(ht-2)+'px;left:calc('+(x.c*w)+'% + 2px);width:calc('+w+'% - 4px);--bc:'+T.c()+';--bd:'+T.d()+'" title="'+esc(b.t+' · '+fmtT(mtT(b.s))+' – '+fmtT(mtT(b.e)))+'">'+
