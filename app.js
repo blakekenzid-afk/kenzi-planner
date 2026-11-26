@@ -4,7 +4,7 @@
    budget, dashboard notes, settings) are docs in "lists" with kind:"home" (v2's Lists page hides any list with a kind).
    Pre-K Planner docs (kind:"prek", id prek_…) are dropped on load and never shown or written here. */
 (function(){'use strict';
-var VERSION='3.0.1';
+var VERSION='3.0.2';
 var API=window.PLANNER_API_OVERRIDE||'https://script.google.com/macros/s/AKfycby2K77ahxWPKILsKQNSUwa199QUB7uymfJbCbZUT9eRmwBT-8f6wZW-WVovfLPS7cZ4bQ/exec';
 var COLS=['groceries','meals','todos','events','reminders','brain','bills','lists','kids'];
 var LSDB='h3db',LSOUT='h3out',LSUI='h3ui';
@@ -348,7 +348,7 @@ function pagesOf(id){var P=[];function p(l,h){P.push([l,h]);}
  case 'calendar':p('Month','calendar/month');p('Week','calendar/week');p('Upcoming','calendar/list');p('Add an event','calendar/new');break;
  case 'meals':p('Dinner plan','meals/plan');p('Grocery list','meals/groceries');p('Meal ideas','meals/ideas');break;
  case 'bills':p('Bills','bills/bills');p('Budget','bills/budget');p('Add a bill','bills/new');break;
- case 'cleaning':p('Due now','cleaning/due');p('By room','cleaning/rooms');p('Add a task','cleaning/new');break;
+ case 'cleaning':p('Due now','cleaning/due');p('By room','cleaning/rooms');p('How often','cleaning/freq');p('Add a task','cleaning/new');break;
  case 'todo':p('To do','todo/open');p('Done','todo/done');p('Add a to-do','todo/new');break;
  case 'brain':p('All notes','brain');p('Add a note','brain/new');break;
  case 'kids':p('Both boys','kids/all');p('Weston','kids/Weston');p('Holden','kids/Holden');break;
@@ -719,14 +719,21 @@ var CFREQ=[['daily','Every day'],['weekly','Every week'],['biweekly','Every 2 we
 var CFN={};CFREQ.forEach(function(c){CFN[c[0]]=c[1];});
 function cleanDue(d){var f=d.f||{},last=f.last;if(!last)return f.start||today();var n={daily:1,weekly:7,biweekly:14,monthly:30,quarterly:91,yearly:365}[f.freq||'weekly']||7;return addDays(last,n);}
 var STARTER=[['Dishes & wipe counters','Kitchen','daily'],['Quick tidy & reset','Living room','daily'],['Laundry','Laundry','weekly'],['Clean bathrooms','Bathrooms','weekly'],['Vacuum','Floors','weekly'],['Mop floors','Floors','biweekly'],['Change sheets','Bedrooms','weekly'],['Take out trash & recycling','Kitchen','weekly'],['Clean out the fridge','Kitchen','weekly'],['Dust','Living room','biweekly'],['Wipe appliances & microwave','Kitchen','biweekly'],['Clean windows & mirrors','Whole house','monthly'],['Wash rugs & throw blankets','Whole house','monthly'],['Change air filter','Whole house','quarterly']];
-function cleanView(tab){if(tab!=='due'&&tab!=='rooms')tab=UI.cleanTab||'due';UI.cleanTab=tab;saveUI();var a=hdocs('cleaning'),t=today();
- var h='<div class="bar">'+tabsHtml('cleaning',[['due','Due now'],['rooms','By room']],tab)+'<span class="grow"></span>'+addBtn('cleaning','Add a task')+'</div>';
+var CFGRP=[['daily','☀️ Daily'],['weekly','📅 Weekly'],['biweekly','🗓️ Every 2 weeks'],['monthly','🌙 Monthly'],['quarterly','🍂 Every 3 months'],['yearly','🎉 Once a year']];
+function cleanFreqHtml(a){var N={daily:1,weekly:7,biweekly:14,monthly:30,quarterly:91,yearly:365},G=CFGRP.map(function(g,i){return {k:g[0],l:g[1],n:N[g[0]],i:i};}),h='';
+ function fd(k){var m=k.toLowerCase().match(/(\d+)\s*(day|week|month|year)/);return m?+m[1]*{day:1,week:7,month:30,year:365}[m[2]]:1e6;}
+ function srt(x,y){var p=cleanDue(x),q=cleanDue(y);return p<q?-1:p>q?1:String(x.f.task).localeCompare(String(y.f.task));}
+ a.forEach(function(d){var k=String(d.f.freq||'weekly');if(!G.some(function(g){return g.k===k;}))G.push({k:k,l:'✨ '+k.charAt(0).toUpperCase()+k.slice(1),n:fd(k),i:99});});
+ G.sort(function(x,y){return x.n-y.n||x.i-y.i||x.k.localeCompare(y.k);}).forEach(function(g){var it=a.filter(function(d){return String(d.f.freq||'weekly')===g.k;});if(it.length)h+=grp(g.l+' · '+it.length)+it.sort(srt).map(cleanRow).join('');});return h;}
+function cleanView(tab){if(['due','rooms','freq'].indexOf(tab)<0)tab=UI.cleanTab||'due';if(['due','rooms','freq'].indexOf(tab)<0)tab='due';UI.cleanTab=tab;saveUI();var a=hdocs('cleaning'),t=today();
+ var h='<div class="bar">'+tabsHtml('cleaning',[['due','Due now'],['rooms','By room'],['freq','How often']],tab)+'<span class="grow"></span>'+addBtn('cleaning','Add a task')+'</div>';
  if(!a.length)return h+emptyHtml('No cleaning routine yet','Add your own tasks, or start with a simple routine you can change.')+'<div class="bar" style="justify-content:center"><button class="btn pri" data-act="starter">Add a starter routine</button></div>';
  if(tab==='due'){var sorted=a.slice().sort(function(x,y){var p=cleanDue(x),q=cleanDue(y);return p<q?-1:p>q?1:String(x.f.task).localeCompare(String(y.f.task));});
   var G=[['🧽 Due today',function(d){return cleanDue(d)<=t;}],['📅 Later this week',function(d){var c=cleanDue(d);return c>t&&c<=addDays(t,7);}],['🌿 Coming up',function(d){return cleanDue(d)>addDays(t,7);}]];
   G.forEach(function(g){var it=sorted.filter(g[1]);if(it.length)h+=grp(g[0])+it.map(cleanRow).join('');});return h;}
+ if(tab==='freq')return h+cleanFreqHtml(a);
  ROOMS.concat(a.map(function(d){return d.f.room;}).filter(function(r){return r&&ROOMS.indexOf(r)<0;})).forEach(function(r,i,arr){if(arr.indexOf(r)!==i)return;var it=a.filter(function(d){return (d.f.room||'Whole house')===r;});if(it.length)h+='<div class="rblk">'+roomHead(r)+it.sort(function(x,y){return cleanDue(x)<cleanDue(y)?-1:1;}).map(cleanRow).join('')+'</div>';});return h;}
-function cleanRow(d){var f=d.f,due=cleanDue(d),od=due<today();return row({title:f.task,check:false,checkVal:d.id,checkAttr:'clean',cls:'rrow',attr:'data-open="h:'+d.id+'" style="'+roomVars(f.room||'Whole house')+'"',tags:[f.room,f.who&&f.who!=='Me'?f.who:'',f.remind?'🔔':''],meta:(CFN[f.freq]||'')+(f.last?' · last done '+nice(f.last):' · not done yet'),side:due<=today()?(od?'overdue':'today'):nice(due),sideCls:od?'late':''});}
+function cleanRow(d){var f=d.f,due=cleanDue(d),od=due<today();return row({title:f.task,check:false,checkVal:d.id,checkAttr:'clean',cls:'rrow',attr:'data-open="h:'+d.id+'" style="'+roomVars(f.room||'Whole house')+'"',tags:[f.room,f.who&&f.who!=='Me'?f.who:'',f.remind?'🔔':''],meta:(CFN[f.freq]||f.freq||'')+(f.last?' · last done '+nice(f.last):' · not done yet'),side:due<=today()?(od?'overdue':'today'):nice(due),sideCls:od?'late':''});}
 function editClean(d){var isNew=!d;d=d||hnew('cleaning',{freq:'weekly',room:'Kitchen'});openForm({sec:SM.cleaning,title:isNew?'New cleaning task':'Edit cleaning task',values:d.f,fields:[
   {k:'task',l:'Task',req:1,ph:'Clean bathrooms'},{k:'room',l:'Room',t:'pick',opts:ROOMS},{k:'freq',l:'How often?',t:'select',opts:CFREQ,blank:false,half:1},{k:'last',l:'Last done',t:'date',opt:1,half:1},
   {k:'who',l:'Who does it',t:'pick',opts:['Me','Blake','Weston','Holden','Everyone']},{k:'note',l:'Notes',t:'long',opt:1,ph:'Products, steps…'}],
