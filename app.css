@@ -385,7 +385,7 @@ body.folded .rsep{width:30px}
 .gsync.busy svg{animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .month .day .ev{border:0;cursor:pointer}
-.month .day .ev .tm,.wk .ev .tm{font-style:normal;font-weight:400;opacity:.8}
+.month .day .ev .tm,.wk .ev .tm{font-style:normal;font-weight:400;opacity:.92}
 .ev.xo{background:color-mix(in srgb,var(--xc) 55%,#fff)!important;font-weight:400!important;border:1px dashed color-mix(in srgb,var(--xc) 70%,#000 20%)!important}
 .month .day .dots i.gdot{width:6px;height:6px}
 .wk{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border:1px solid var(--d);border-radius:10px;overflow:hidden;background:var(--card)}
@@ -691,3 +691,4 @@ body.folded .rsep{width:30px}
  .tbreg{margin-left:0}
 }
 .tbslot .tbat{max-width:220px;margin-bottom:6px}
+.tbd.on small{color:var(--ink)}
