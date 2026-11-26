@@ -663,7 +663,7 @@ body.folded .rsep{width:30px}
 .tmh span{position:absolute;left:0;top:-8px;width:52px;font-size:11.5px;font-weight:700;color:var(--ink);opacity:.75;background:var(--card);padding-right:4px}
 .tmb{position:absolute;left:58px;right:0;top:0;bottom:0}
 .tfree{position:absolute;left:0;right:0;border:1.5px dashed color-mix(in srgb,var(--d) 40%,transparent);background:color-mix(in srgb,var(--c) 14%,transparent);border-radius:8px;display:flex;align-items:center;justify-content:flex-end;padding:0 10px;color:var(--ink);cursor:pointer;overflow:hidden}
-.tfree span{font-size:11.5px;font-weight:700;opacity:.7;white-space:nowrap}
+.tfree span{font-size:11.5px;font-weight:700;opacity:.82;white-space:nowrap}
 .tfree:hover{background:color-mix(in srgb,var(--c) 40%,transparent)}
 .tfree:hover span:after{content:" · tap to plan"}
 .tbk2{position:absolute;background:var(--bc);border:1px solid color-mix(in srgb,var(--bd) 50%,transparent);border-left:4px solid var(--bd);border-radius:7px;padding:3px 7px;overflow:hidden;color:var(--ink);cursor:pointer;display:flex;flex-direction:column;gap:0;z-index:1;box-shadow:0 1px 2px rgba(0,0,0,.06)}

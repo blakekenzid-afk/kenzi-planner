@@ -158,7 +158,7 @@ window.addEventListener('hashchange',function(){closeSheet(true);render();window
 /* ---------- look: themes, section colors, fonts, background (settings doc h3_settings) ---------- */
 var THEMES={
  lavender:{name:'NOVA Lavender',tag:'the Pre-K Planner look',bg:'#F7F6FB',card:'#FFFFFF',ink:'#2E2A4A',muted:'#6B6585',line:'#3A3556',rail:'#FFFFFF',railLine:'#E4E0EF',field:'#FBFAFE',fieldLine:'#D9D4E7',note:'#CFCADF',head:'Lora',body:'Lato',pattern:'none'},
- coffee:{name:'Autumn Coffeehouse',tag:'your old cozy kraft & caramel look',bg:'#F3EBDD',card:'#FFFBF3',ink:'#4A3426',muted:'#7A5C48',line:'#6B4F3A',rail:'#EAD7BD',railLine:'#C9A27A',field:'#F8F1E5',fieldLine:'#E1CDB2',note:'#DCC6A8',head:'Fraunces',body:'Nunito',pattern:'paper',
+ coffee:{name:'Autumn Coffeehouse',tag:'your old cozy kraft & caramel look',bg:'#F3EBDD',card:'#FFFBF3',ink:'#4A3426',muted:'#6B4F3D',line:'#6B4F3A',rail:'#EAD7BD',railLine:'#C9A27A',field:'#F8F1E5',fieldLine:'#E1CDB2',note:'#DCC6A8',head:'Fraunces',body:'Nunito',pattern:'paper',
   home:{c:'#E8D5BD',d:'#6B4127'},
   pal:{start:['#EADBC4','#5A3A24'],calendar:['#F1D49A','#6E4C0C'],meals:['#D9D9A8','#4D4B22'],bills:['#CDD3A2','#4A4F1C'],cleaning:['#D3DED3','#3A5548'],todo:['#EDBFA3','#88381A'],brain:['#F4DC8E','#664609'],
    kids:['#E6C29C','#77421D'],appts:['#D8C4C8','#6B3A47'],bdays:['#EBC0B0','#86392D'],projects:['#DDC5A3','#684724'],lib:['#E5D3B8','#684828'],index:['#D8C6B0','#58392A']}},
@@ -200,6 +200,7 @@ function applyLook(){var C=cfg(),T=theme(),r=document.documentElement.style,sec=
 function shortName(t){t=String(t||'').trim();var w=t.split(/[\s&]+/).filter(Boolean);return (w[0]||t).slice(0,10);}
 function initials(t){var w=String(t||'').replace(/[^A-Za-z0-9 &]/g,'').split(/[\s&]+/).filter(Boolean);return ((w[0]||'?').charAt(0)+(w[1]?w[1].charAt(0):(w[0]||'').charAt(1)||'')).toUpperCase();}
 function visible(){return ORDER.filter(function(id){return !SM[id].hide||id==='index';});}
+onLoaded.push(function(){applyLook();}); /* v3.1.0: apply synced look on first load too (fresh devices) */
 /* ---------- rail ---------- */
 function rail(cur){var col=!!UI.collapsed,T=theme(),rh=T.home||{c:'#D9CFF2',d:'#5B4B8A'},h='<a class="rl'+(cur==='home'?' on':'')+'" href="#home" style="'+vars(rh)+'" aria-label="Home dashboard" title="Home dashboard"><span class="ci">'+ic('home')+'</span><b>Home</b></a>';
  visible().forEach(function(id){var s=SM[id];h+='<a class="rl'+(cur===id?' on':'')+'" href="#'+id+'" style="'+vars(s)+'" title="'+esc(s.title)+'"><span class="ci">'+esc(s.ini)+'</span><b>'+esc(s.rail)+'</b></a>';});
