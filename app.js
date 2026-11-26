@@ -4,7 +4,7 @@
    budget, dashboard notes, settings) are docs in "lists" with kind:"home" (v2's Lists page hides any list with a kind).
    Pre-K Planner docs (kind:"prek", id prek_…) are dropped on load and never shown or written here. */
 (function(){'use strict';
-var VERSION='3.0.2';
+var VERSION='3.0.3';
 var API=window.PLANNER_API_OVERRIDE||'https://script.google.com/macros/s/AKfycby2K77ahxWPKILsKQNSUwa199QUB7uymfJbCbZUT9eRmwBT-8f6wZW-WVovfLPS7cZ4bQ/exec';
 var COLS=['groceries','meals','todos','events','reminders','brain','bills','lists','kids'];
 var LSDB='h3db',LSOUT='h3out',LSUI='h3ui';
@@ -348,7 +348,7 @@ function pagesOf(id){var P=[];function p(l,h){P.push([l,h]);}
  case 'calendar':p('Month','calendar/month');p('Week','calendar/week');p('Upcoming','calendar/list');p('Add an event','calendar/new');break;
  case 'meals':p('Dinner plan','meals/plan');p('Grocery list','meals/groceries');p('Meal ideas','meals/ideas');break;
  case 'bills':p('Bills','bills/bills');p('Budget','bills/budget');p('Add a bill','bills/new');break;
- case 'cleaning':p('Due now','cleaning/due');p('By room','cleaning/rooms');p('How often','cleaning/freq');p('Add a task','cleaning/new');break;
+ case 'cleaning':p('Today','cleaning/today');p('This week','cleaning/week');p('Due now','cleaning/due');p('By room','cleaning/rooms');p('Add a task','cleaning/new');break;
  case 'todo':p('To do','todo/open');p('Done','todo/done');p('Add a to-do','todo/new');break;
  case 'brain':p('All notes','brain');p('Add a note','brain/new');break;
  case 'kids':p('Both boys','kids/all');p('Weston','kids/Weston');p('Holden','kids/Holden');break;
@@ -717,28 +717,67 @@ function roomColOpen(r){var k=roomKey(r),cur=roomC(r),mine=(cfg().roomCol||{})[k
 function roomColSet(r,c){var m=clone(cfg().roomCol||{}),k=roomKey(r);if(c)m[k]=c;else delete m[k];setCfg({roomCol:Object.keys(m).length?m:undefined},true);roomColOpen(r);rerender();}
 var CFREQ=[['daily','Every day'],['weekly','Every week'],['biweekly','Every 2 weeks'],['monthly','Every month'],['quarterly','Every 3 months'],['yearly','Once a year']];
 var CFN={};CFREQ.forEach(function(c){CFN[c[0]]=c[1];});
-function cleanDue(d){var f=d.f||{},last=f.last;if(!last)return f.start||today();var n={daily:1,weekly:7,biweekly:14,monthly:30,quarterly:91,yearly:365}[f.freq||'weekly']||7;return addDays(last,n);}
-var STARTER=[['Dishes & wipe counters','Kitchen','daily'],['Quick tidy & reset','Living room','daily'],['Laundry','Laundry','weekly'],['Clean bathrooms','Bathrooms','weekly'],['Vacuum','Floors','weekly'],['Mop floors','Floors','biweekly'],['Change sheets','Bedrooms','weekly'],['Take out trash & recycling','Kitchen','weekly'],['Clean out the fridge','Kitchen','weekly'],['Dust','Living room','biweekly'],['Wipe appliances & microwave','Kitchen','biweekly'],['Clean windows & mirrors','Whole house','monthly'],['Wash rugs & throw blankets','Whole house','monthly'],['Change air filter','Whole house','quarterly']];
-var CFGRP=[['daily','☀️ Daily'],['weekly','📅 Weekly'],['biweekly','🗓️ Every 2 weeks'],['monthly','🌙 Monthly'],['quarterly','🍂 Every 3 months'],['yearly','🎉 Once a year']];
-function cleanFreqHtml(a){var N={daily:1,weekly:7,biweekly:14,monthly:30,quarterly:91,yearly:365},G=CFGRP.map(function(g,i){return {k:g[0],l:g[1],n:N[g[0]],i:i};}),h='';
- function fd(k){var m=k.toLowerCase().match(/(\d+)\s*(day|week|month|year)/);return m?+m[1]*{day:1,week:7,month:30,year:365}[m[2]]:1e6;}
- function srt(x,y){var p=cleanDue(x),q=cleanDue(y);return p<q?-1:p>q?1:String(x.f.task).localeCompare(String(y.f.task));}
- a.forEach(function(d){var k=String(d.f.freq||'weekly');if(!G.some(function(g){return g.k===k;}))G.push({k:k,l:'✨ '+k.charAt(0).toUpperCase()+k.slice(1),n:fd(k),i:99});});
- G.sort(function(x,y){return x.n-y.n||x.i-y.i||x.k.localeCompare(y.k);}).forEach(function(g){var it=a.filter(function(d){return String(d.f.freq||'weekly')===g.k;});if(it.length)h+=grp(g.l+' · '+it.length)+it.sort(srt).map(cleanRow).join('');});return h;}
-function cleanView(tab){if(['due','rooms','freq'].indexOf(tab)<0)tab=UI.cleanTab||'due';if(['due','rooms','freq'].indexOf(tab)<0)tab='due';UI.cleanTab=tab;saveUI();var a=hdocs('cleaning'),t=today();
- var h='<div class="bar">'+tabsHtml('cleaning',[['due','Due now'],['rooms','By room'],['freq','How often']],tab)+'<span class="grow"></span>'+addBtn('cleaning','Add a task')+'</div>';
+/* weekdays (v3.0.3): f.days = ['mon',…] (daily = every day); f.doneOn = dates checked off, so each day counts on its own */
+var CDAYS=[['mon','Mon'],['tue','Tue'],['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat'],['sun','Sun']],CDK=['sun','mon','tue','wed','thu','fri','sat'],CDLONG={mon:'Monday',tue:'Tuesday',wed:'Wednesday',thu:'Thursday',fri:'Friday',sat:'Saturday',sun:'Sunday'};
+function cDow(ds){return CDK[pd(ds).getDay()];}
+function cDays(f){f=f||{};if((f.freq||'weekly')==='daily')return CDAYS.map(function(x){return x[0];});var a=Array.isArray(f.days)?f.days:[];return CDAYS.map(function(x){return x[0];}).filter(function(k){return a.indexOf(k)>=0;});}
+function cFixed(f){var q=f.freq||'weekly';return q==='daily'||(q==='weekly'&&cDays(f).length>0);}
+function cIsDone(f,ds){return (f.doneOn||[]).indexOf(ds)>=0;}
+function cDaysTxt(f){if((f.freq||'weekly')==='daily')return '';var a=cDays(f);if(!a.length)return '';if(a.length===7)return 'every day';var n=a.map(function(k){return CDAYS.filter(function(x){return x[0]===k;})[0][1];});return n.length>1?n.slice(0,-1).join(', ')+' & '+n[n.length-1]:n[0];}
+function nextOnDays(from,days){for(var i=0;i<7;i++){var x=addDays(from,i);if(days.indexOf(cDow(x))>=0)return x;}return from;}
+function cleanRaw(d){var f=d.f||{},last=f.last;if(!last)return f.start||today();var n={daily:1,weekly:7,biweekly:14,monthly:30,quarterly:91,yearly:365}[f.freq||'weekly']||7;return addDays(last,n);}
+function cleanDue(d){var f=d.f||{},q=f.freq||'weekly',ds=cDays(f);if(q==='daily'||!ds.length)return cleanRaw(d);
+ if(q==='weekly')return nextOnDays(f.last?addDays(f.last,1):(f.start||today()),ds);
+ return nextOnDays(f.last?monday(cleanRaw(d)):(f.start||today()),ds);}
+var STARTER=[['Dishes & wipe counters','Kitchen','daily'],['Quick tidy & reset','Living room','daily'],['Laundry','Laundry','weekly',['mon']],['Clean bathrooms','Bathrooms','weekly',['thu']],['Vacuum','Floors','weekly',['wed']],['Mop floors','Floors','biweekly',['sat']],['Change sheets','Bedrooms','weekly',['sun']],['Take out trash & recycling','Kitchen','weekly',['tue']],['Clean out the fridge','Kitchen','weekly',['fri']],['Dust','Living room','biweekly',['tue']],['Wipe appliances & microwave','Kitchen','biweekly',['fri']],['Clean windows & mirrors','Whole house','monthly'],['Wash rugs & throw blankets','Whole house','monthly'],['Change air filter','Whole house','quarterly']];
+/* which task shows on which day of a Mon–Sun week */
+function cleanWeek(ws){var we=addDays(ws,6),t=today(),out={},i;for(i=0;i<7;i++)out[addDays(ws,i)]=[];
+ hdocs('cleaning').forEach(function(d){var f=d.f||{},ds=cDays(f),st=f.start||'',x;
+  if(cFixed(f)){for(i=0;i<7;i++){x=addDays(ws,i);if(ds.indexOf(cDow(x))>=0&&(!st||x>=st||cIsDone(f,x)))out[x].push(d);}return;}
+  var doneIn=(f.doneOn||[]).filter(function(z){return z>=ws&&z<=we;});if(doneIn.length){doneIn.forEach(function(z){out[z].push(d);});return;}
+  var due=cleanDue(d);if(due>we)return;
+  if(ds.length){for(i=0;i<7;i++){x=addDays(ws,i);if(ds.indexOf(cDow(x))>=0)out[x].push(d);}return;}
+  x=due<t?t:due;if(x<ws)x=ws;out[x].push(d);});
+ Object.keys(out).forEach(function(k){out[k].sort(function(p,q){var a=roomOrd(p.f.room),b=roomOrd(q.f.room);return a-b||String(p.f.task).localeCompare(String(q.f.task));});});return out;}
+function roomOrd(r){var i=ROOMS.indexOf(r||'Whole house');return i<0?50:i;}
+function cCard(d,ds){var f=d.f,on=cIsDone(f,ds),r=f.room||'Whole house',w=f.who&&f.who!=='Me'?f.who:'';
+ return '<div class="wc'+(on?' done':'')+'" style="'+roomVars(r)+'" data-open="h:'+d.id+'" role="button" tabindex="0"><button class="ck'+(on?' on':'')+'" data-cday="'+d.id+'|'+ds+'" aria-label="'+(on?'Mark not done':'Mark done')+' for '+esc(nice(ds))+'">'+ic('check',3)+'</button><span class="wt"><b>'+esc(f.task||'(untitled)')+'</b><span class="wtg"><span class="tag">'+esc(r)+'</span>'+(w?'<span class="tag">'+esc(w)+'</span>':'')+'</span></span></div>';}
+function cLegend(){var seen=[];hdocs('cleaning').forEach(function(d){var r=d.f.room||'Whole house';if(seen.indexOf(r)<0)seen.push(r);});seen.sort(function(a,b){return roomOrd(a)-roomOrd(b)||a.localeCompare(b);});
+ return '<div class="wleg">'+seen.map(function(r){return '<span class="wlg" style="'+roomVars(r)+'"><i></i>'+esc(r)+'</span>';}).join('')+'</div>';}
+function cleanTodayHtml(){var t=today(),it=cleanWeek(monday(t))[t]||[],n=it.filter(function(d){return cIsDone(d.f,t);}).length,dd=pd(t);
+ var h='<div class="grp wtod">'+esc(DOWL[dd.getDay()]+', '+MON[dd.getMonth()].slice(0,3)+' '+dd.getDate())+(it.length?' · '+n+' of '+it.length+' done'+(n===it.length?' 🎉':''):'')+'</div>';
+ if(!it.length)return h+emptyHtml('Nothing on the list today','Enjoy it! Tap a task to give it a day of the week.');
+ return h+'<div class="wcards">'+it.map(function(d){return cCard(d,t);}).join('')+'</div>';}
+function cleanWeekHtml(){var t=today(),ws=monday(t),W=cleanWeek(ws),h=cLegend()+'<div class="cwk"><div class="cwg">';
+ for(var i=0;i<7;i++){var x=addDays(ws,i),it=W[x],n=it.filter(function(d){return cIsDone(d.f,x);}).length,dd=pd(x),now=x===t;
+  h+='<div class="cwd'+(now?' now':'')+(x<t?' past':'')+'"><div class="cwdh"><b>'+esc(CDLONG[cDow(x)])+'</b><small>'+(now?'Today · ':'')+esc(MON[dd.getMonth()].slice(0,3)+' '+dd.getDate())+'</small>'+(it.length?'<span class="cwn">'+n+'/'+it.length+'</span>':'')+'</div>'+
+   '<div class="cwdl">'+(it.length?it.map(function(d){return cCard(d,x);}).join(''):'<p class="wfree">'+(x<t?'Nothing planned':'Free day 🌿')+'</p>')+'</div></div>';}
+ return h+'</div></div>';}
+var CTABS=['today','week','due','rooms'];
+function cleanView(tab){if(tab==='freq')tab='week';if(CTABS.indexOf(tab)<0)tab=UI.cleanTab==='freq'?'week':UI.cleanTab;if(CTABS.indexOf(tab)<0)tab='today';UI.cleanTab=tab;saveUI();var a=hdocs('cleaning'),t=today();
+ var h='<div class="bar">'+tabsHtml('cleaning',[['today','Today'],['week','This week'],['due','Due now'],['rooms','By room']],tab)+'<span class="grow"></span>'+addBtn('cleaning','Add a task')+'</div>';
  if(!a.length)return h+emptyHtml('No cleaning routine yet','Add your own tasks, or start with a simple routine you can change.')+'<div class="bar" style="justify-content:center"><button class="btn pri" data-act="starter">Add a starter routine</button></div>';
+ if(tab==='today')return h+cleanTodayHtml();
+ if(tab==='week')return h+cleanWeekHtml();
  if(tab==='due'){var sorted=a.slice().sort(function(x,y){var p=cleanDue(x),q=cleanDue(y);return p<q?-1:p>q?1:String(x.f.task).localeCompare(String(y.f.task));});
   var G=[['🧽 Due today',function(d){return cleanDue(d)<=t;}],['📅 Later this week',function(d){var c=cleanDue(d);return c>t&&c<=addDays(t,7);}],['🌿 Coming up',function(d){return cleanDue(d)>addDays(t,7);}]];
   G.forEach(function(g){var it=sorted.filter(g[1]);if(it.length)h+=grp(g[0])+it.map(cleanRow).join('');});return h;}
- if(tab==='freq')return h+cleanFreqHtml(a);
  ROOMS.concat(a.map(function(d){return d.f.room;}).filter(function(r){return r&&ROOMS.indexOf(r)<0;})).forEach(function(r,i,arr){if(arr.indexOf(r)!==i)return;var it=a.filter(function(d){return (d.f.room||'Whole house')===r;});if(it.length)h+='<div class="rblk">'+roomHead(r)+it.sort(function(x,y){return cleanDue(x)<cleanDue(y)?-1:1;}).map(cleanRow).join('')+'</div>';});return h;}
-function cleanRow(d){var f=d.f,due=cleanDue(d),od=due<today();return row({title:f.task,check:false,checkVal:d.id,checkAttr:'clean',cls:'rrow',attr:'data-open="h:'+d.id+'" style="'+roomVars(f.room||'Whole house')+'"',tags:[f.room,f.who&&f.who!=='Me'?f.who:'',f.remind?'🔔':''],meta:(CFN[f.freq]||f.freq||'')+(f.last?' · last done '+nice(f.last):' · not done yet'),side:due<=today()?(od?'overdue':'today'):nice(due),sideCls:od?'late':''});}
+function cleanRow(d){var f=d.f,due=cleanDue(d),od=due<today(),dt=cDaysTxt(f);return row({title:f.task,check:false,checkVal:d.id,checkAttr:'clean',cls:'rrow',attr:'data-open="h:'+d.id+'" style="'+roomVars(f.room||'Whole house')+'"',tags:[f.room,f.who&&f.who!=='Me'?f.who:'',f.remind?'🔔':''],meta:(CFN[f.freq]||f.freq||'')+(dt?' · '+dt:'')+(f.last?(f.last>today()?' · done early for '+nice(f.last):' · last done '+nice(f.last)):' · not done yet'),side:due<=today()?(od?'overdue':'today'):nice(due),sideCls:od?'late':''});}
 function editClean(d){var isNew=!d;d=d||hnew('cleaning',{freq:'weekly',room:'Kitchen'});openForm({sec:SM.cleaning,title:isNew?'New cleaning task':'Edit cleaning task',values:d.f,fields:[
   {k:'task',l:'Task',req:1,ph:'Clean bathrooms'},{k:'room',l:'Room',t:'pick',opts:ROOMS},{k:'freq',l:'How often?',t:'select',opts:CFREQ,blank:false,half:1},{k:'last',l:'Last done',t:'date',opt:1,half:1},
+  {k:'days',l:'Which day(s)?',t:'multi',opts:CDAYS,opt:1,show:function(f){return f.freq!=='daily';},hint:'It shows up on these days in Today and This week. Leave them all off and it shows up in the week it’s due.'},
   {k:'who',l:'Who does it',t:'pick',opts:['Me','Blake','Weston','Holden','Everyone']},{k:'note',l:'Notes',t:'long',opt:1,ph:'Products, steps…'}],
-  onSave:function(v){d=clone(d);d.f=Object.assign({},d.f,v);if(isNew&&!v.last)d.f.start=today();hsave(d);toast(isNew?'Added ✓':'Updated ✓');},onDelete:isNew?null:function(){var cp=clone(d);remove('lists',d.id);toast('Deleted',function(){save('lists',cp);});},confirmDel:'Delete this task?'});$$('[data-pick=room] button').forEach(function(b){b.setAttribute('style',roomVars(b.getAttribute('data-val')));});}
-function cleanDone(id){var d=hget(id);if(!d)return;var old=clone(d),c=clone(d);c.f.last=today();hsave(c);toast('Nice! “'+c.f.task+'” is done ✨ Next: '+nice(cleanDue(c)),function(){hsave(old);});}
+  onSave:function(v){d=clone(d);var dy=v.freq==='daily'?[]:CDAYS.map(function(x){return x[0];}).filter(function(k){return (v.days||[]).indexOf(k)>=0;});d.f=Object.assign({},d.f,v);if(dy.length)d.f.days=dy;else delete d.f.days;if(isNew&&!v.last)d.f.start=today();hsave(d);toast(isNew?'Added ✓':'Updated ✓');},onDelete:isNew?null:function(){var cp=clone(d);remove('lists',d.id);toast('Deleted',function(){save('lists',cp);});},confirmDel:'Delete this task?'});$$('[data-pick=room] button').forEach(function(b){b.setAttribute('style',roomVars(b.getAttribute('data-val')));});}
+/* check one day's copy on or off (Today / This week) */
+function cleanTick(id,ds){var d=hget(id);if(!d)return;var old=clone(d),c=clone(d),f=c.f,L=(f.doneOn||[]).slice(),k=L.indexOf(ds);
+ if(k>=0){L.splice(k,1);if(f.last===ds){var m=L.slice().sort().pop();if(m)f.last=m;else delete f.last;}}else{L.push(ds);if(!f.last||ds>f.last)f.last=ds;}
+ L.sort();if(L.length)f.doneOn=L.slice(-60);else delete f.doneOn;hsave(c);
+ if(k<0)toast('Nice! “'+f.task+'” is done for '+(ds===today()?'today':nice(ds))+' ✨',function(){hsave(old);});}
+/* the check on Due now / By room: marks the copy it was due for */
+function cleanDone(id){var d=hget(id);if(!d)return;var f=d.f||{},t=today(),ds=t;
+ if(cDays(f).length&&cFixed(f)){var due=cleanDue(d);if(due>=t)ds=due;else{ds=t;for(var i=0;i<7;i++){var x=addDays(t,-i);if(cDays(f).indexOf(cDow(x))>=0){ds=x;break;}}}}
+ var old=clone(d),c=clone(d),L=(c.f.doneOn||[]).slice();if(L.indexOf(ds)<0)L.push(ds);L.sort();c.f.doneOn=L.slice(-60);if(!c.f.last||ds>c.f.last)c.f.last=ds;hsave(c);toast('Nice! “'+c.f.task+'” is done ✨ Next: '+nice(cleanDue(c)),function(){hsave(old);});}
 
 /* =================== BRAIN DUMP (v2 "brain") =================== */
 var NOTE_COLORS=['yellow','peach','sage','cream','rose','tan'],NOTE_HEX={yellow:'#FBEBA8',peach:'#F9D3B7',sage:'#DDE7C6',cream:'#FCF4E0',rose:'#F6CFD6',tan:'#EBDDC8'};
@@ -1166,6 +1205,7 @@ document.addEventListener('click',function(e){var t=e.target,el;if(!t.closest)re
  if((el=t.closest('[data-tog]'))){e.stopPropagation();var p=el.getAttribute('data-tog').split(':');if(p[0]==='todos')toggleTodo(p[1]);else{var it=find(p[0],p[1]);if(it){var c=Object.assign({},it,{done:!it.done});save(p[0],c);if(c.done)toast('Done ✓',function(){save(p[0],Object.assign({},c,{done:false}));});}}return;}
  if((el=t.closest('[data-got]'))){e.stopPropagation();var g=find('groceries',el.getAttribute('data-got').split(':')[1]);if(g)save('groceries',Object.assign({},g,{got:!g.got}));return;}
  if((el=t.closest('[data-paid]'))){e.stopPropagation();togglePaid(el.getAttribute('data-paid'));return;}
+ if((el=t.closest('[data-cday]'))){e.stopPropagation();var cdy=el.getAttribute('data-cday').split('|');cleanTick(cdy[0],cdy[1]);return;}
  if((el=t.closest('[data-clean]'))){e.stopPropagation();cleanDone(el.getAttribute('data-clean'));return;}
  if((el=t.closest('[data-bdone]'))){e.stopPropagation();var b=find('brain',el.getAttribute('data-bdone'));if(b)save('brain',Object.assign({},b,{done:!b.done}));return;}
  if((el=t.closest('[data-made]'))){e.stopPropagation();var me=mealFor(el.getAttribute('data-made'));if(me)save('meals',Object.assign({},me,{made:!me.made}));return;}
@@ -1226,7 +1266,7 @@ document.addEventListener('click',function(e){var t=e.target,el;if(!t.closest)re
   case 'newkid':editKid(null,preset(el).kid||'Weston');break;case 'newidea':editIdea(null);break;case 'newgroc':editGrocery(null);break;
   case 'newbud':editBud(null);break;case 'newlist':editList(null);break;
   case 'liblink':libForm(null,{type:'link'});break;case 'libfile':libForm(null,{type:'file'});break;
-  case 'starter':var made=0;STARTER.forEach(function(s){hsave(hnew('cleaning',{task:s[0],room:s[1],freq:s[2],who:'Me',start:today()}),true);made++;});render();toast(made+' tasks added — change any of them to fit your home 🧽');break;
+  case 'starter':var made=0;STARTER.forEach(function(s){var sf={task:s[0],room:s[1],freq:s[2],who:'Me',start:today()};if(s[3])sf.days=s[3];hsave(hnew('cleaning',sf),true);made++;});render();toast(made+' tasks added — change any of them to fit your home 🧽');break;
   case 'cap':var cv=$('#cap').value.trim();if(cv){save('brain',{text:cv,done:false,color:NOTE_COLORS[DB.brain.length%NOTE_COLORS.length]});toast('Saved to your brain dump 💡');}else $('#cap').focus();break;
   case 'clearbrain':var gb2=DB.brain.filter(function(x){return x.done;}).map(clone);gb2.forEach(function(x){remove('brain',x.id,true);});render();toast('Cleared '+gb2.length,function(){gb2.forEach(function(x){save('brain',x,true);});render();});break;
   case 'cleardone':var gt=DB.todos.filter(function(x){return x.done;}).map(clone);if(!gt.length||!confirm('Clear '+gt.length+' finished to-do'+(gt.length===1?'':'s')+'?'))break;gt.forEach(function(x){remove('todos',x.id,true);});render();toast('Cleared '+gt.length,function(){gt.forEach(function(x){save('todos',x,true);});render();});break;
